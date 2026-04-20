@@ -14,7 +14,7 @@ Ships as a Claude Code **plugin**:
 Inside Claude Code:
 
 ```
-/plugin marketplace add shimaozb/autograph
+/plugin marketplace add smixs/autograph
 /plugin install autograph@autograph
 ```
 
@@ -34,13 +34,13 @@ To uninstall:
 ### Direct install from GitHub (no marketplace)
 
 ```
-/plugin install github:shimaozb/autograph
+/plugin install github:smixs/autograph
 ```
 
 ### Local development
 
 ```bash
-git clone https://github.com/shimaozb/autograph.git ~/dev/autograph
+git clone https://github.com/smixs/autograph.git ~/dev/autograph
 claude --plugin-dir ~/dev/autograph
 ```
 
