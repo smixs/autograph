@@ -262,8 +262,6 @@ cd skills/autograph && uv run tests/test_autograph.py
 
 Вырос из [`smixs/agent-second-brain`](https://github.com/smixs/agent-second-brain) — Telegram-бота "второй мозг", где голосовые расшифровки классифицировались и писались в Obsidian с ежевечерним daily-репортом. Decay-движок, vault-health scoring, graph-tools оказались частью, которая нужна всем агентам, а не только одному боту. `autograph` выделяет эти инструменты в общий слой памяти для любого рантайма.
 
-Оформление README — в духе [`MemPalace`](https://github.com/MemPalace/mempalace).
-
 ---
 
 <div align="center">
