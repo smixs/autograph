@@ -1,0 +1,26 @@
+# autograph runtime artifacts
+.graph/
+.trash/
+
+# Personal schemas (never commit)
+schema.json
+schema.local.json
+**/schema.json
+**/schema.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local tmp
+/tmp-*/
+*.swp
