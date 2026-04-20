@@ -1,9 +1,8 @@
 <div align="center">
 
-<!-- TODO: replace with your hero image (recommended 800×320) -->
-<!-- <img src=".github/assets/hero.png" alt="autograph" width="720"> -->
-
 # 🧠 autograph
+
+<img src=".github/assets/hero.webp" alt="autograph knowledge graph" width="560">
 
 **Типизированный слой памяти для always-on агентов. Одна схема, один граф, любой Obsidian-vault.**
 
