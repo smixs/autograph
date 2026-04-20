@@ -6,7 +6,7 @@
 
 **Типизированный слой памяти для always-on агентов. Одна схема, один граф, любой Obsidian-vault.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0-4dc9f6?style=flat-square&labelColor=0a0e14)](https://github.com/smixs/autograph)
+[![Version](https://img.shields.io/badge/version-0.1.0--beta-4dc9f6?style=flat-square&labelColor=0a0e14)](https://github.com/smixs/autograph/releases)
 [![Python](https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14)](https://www.python.org)
 [![Tests](https://img.shields.io/badge/tests-220%2F220-b0e8ff?style=flat-square&labelColor=0a0e14)](https://github.com/smixs/autograph)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=flat-square&labelColor=0a0e14)](./LICENSE)

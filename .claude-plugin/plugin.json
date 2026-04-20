@@ -1,6 +1,6 @@
 {
   "name": "autograph",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Schema-as-code engine for any Obsidian vault: discover structure, enforce taxonomy, manage decay, repair links, generate MOCs. Ships the autograph skill plus a /research slash command that bootstraps a schema for empty or chaotic vaults via a swarm of exploration agents and interactive Q&A.",
   "author": {
     "name": "Serge Shima"

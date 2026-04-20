@@ -8,7 +8,7 @@
       "name": "autograph",
       "source": ".",
       "description": "Schema-as-code engine for any Obsidian vault: discover structure, enforce taxonomy, manage decay, repair links, generate MOCs. Ships with /autograph:research — an interactive bootstrap for empty or chaotic vaults via a swarm of exploration agents + AskUserQuestion rounds.",
-      "version": "1.0.0",
+      "version": "0.1.0",
       "category": "productivity",
       "tags": ["obsidian", "vault", "knowledge-graph", "pkm", "taxonomy"]
     }
