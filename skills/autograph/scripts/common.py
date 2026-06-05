@@ -236,6 +236,9 @@ def write_frontmatter(fields: dict, original_lines: list[str]) -> str:
 
     for line in original_lines:
         stripped = line.strip()
+        indented = line.startswith('  ') or line.startswith('\t')
+        if skip_continuation and indented:
+            continue  # fold/literal continuation of a replaced key: skip by indent, not colon
 
         if not stripped or stripped.startswith('#'):
             skip_continuation = False
