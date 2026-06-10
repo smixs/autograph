@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-autograph dedup — find duplicate entities, pick canonical (richest content wins),
-merge unique data, redirect links, move extras to .trash/.
+autograph dedup — find duplicate entities and write reproducible cleanup
+manifests before any destructive-ish move.
 
 Usage:
-  python3 dedup.py <vault-dir>                    # report only
-  python3 dedup.py <vault-dir> --apply             # merge + redirect
-  python3 dedup.py <vault-dir> --apply --verbose
+  python3 dedup.py <vault-dir> [schema.json]                         # report only
+  python3 dedup.py <vault-dir> [schema.json] --manifest /tmp/m.json   # write dry-run manifest
+  python3 dedup.py <vault-dir> [schema.json] --apply-manifest m.json  # apply approved entries
+  python3 dedup.py <vault-dir> [schema.json] --apply                  # legacy apply, blocked by policy schemas
 
 Safety:
   - NEVER deletes files. Moves extras to <vault>/.trash/dedup-YYYY-MM-DD/
   - Merges unique content from extras INTO canonical before moving
   - Logs every action to <vault>/.graph/dedup-log.jsonl
+  - Policy schemas require manifest approval before apply
 """
 
+import argparse
 import re
 import sys
 import json
@@ -22,8 +25,9 @@ from collections import defaultdict
 from datetime import datetime
 
 from common import (
-    parse_frontmatter, walk_vault, rel_path, IGNORE_DIRS,
-    load_schema, get_richness_fields, collect_duplicate_groups, write_frontmatter
+    parse_frontmatter, walk_vault, rel_path,
+    load_schema, get_richness_fields, collect_duplicate_groups,
+    write_frontmatter, infer_domain, infer_type
 )
 
 
@@ -70,6 +74,203 @@ def pick_canonical(paths: list[str], vault_dir: Path, bonus_fields: list | None 
     canonical = scored[0][2]
     extras = [s[2] for s in scored[1:]]
     return canonical, extras
+
+
+def dedup_policy(schema: dict) -> dict:
+    """Return optional policy config from schema."""
+    return schema.get('dedup_policy', {}) or {}
+
+
+def is_policy_schema(schema: dict) -> bool:
+    return bool(dedup_policy(schema).get('path_rules'))
+
+
+def ignored_by_policy(path: str, policy: dict) -> bool:
+    """Skip known inactive namespaces such as ignored backup folders."""
+    for prefix in policy.get('ignored_path_prefixes', []):
+        if path.startswith(prefix):
+            return True
+    return False
+
+
+def path_rule_for(path: str, policy: dict) -> dict:
+    """Find the first ontology rule matching a relative vault path."""
+    for rule in policy.get('path_rules', []):
+        if path.startswith(rule.get('prefix', '')):
+            return rule
+    return {}
+
+
+def policy_kind(path: str, domain: str, card_type: str, policy: dict) -> str:
+    rule = path_rule_for(path, policy)
+    return str(rule.get('kind') or f'{domain}/{card_type}')
+
+
+def policy_domain(path: str, fallback: str, policy: dict) -> str:
+    rule = path_rule_for(path, policy)
+    return str(rule.get('domain') or fallback)
+
+
+def policy_type(path: str, fallback: str, policy: dict) -> str:
+    rule = path_rule_for(path, policy)
+    return str(rule.get('type') or fallback)
+
+
+def policy_canonical(
+    records: list[dict],
+    vault_dir: Path,
+    bonus_fields: list | None,
+    policy: dict
+) -> tuple[str, list[str]]:
+    """Pick canonical by ontology priority first, richness second."""
+    priority = policy.get('canonical_priority', [])
+    ranked = []
+    for rec in records:
+        path = rec['path']
+        prefix_rank = len(priority)
+        for idx, prefix in enumerate(priority):
+            if path.startswith(prefix):
+                prefix_rank = idx
+                break
+        try:
+            content = (vault_dir / path).read_text(errors='replace')
+        except Exception:
+            content = ''
+        ranked.append((prefix_rank, -content_richness(content, bonus_fields), path))
+    ranked.sort()
+    canonical = ranked[0][2]
+    extras = [item[2] for item in ranked[1:]]
+    return canonical, extras
+
+
+def file_record(vault_dir: Path, path: str, schema: dict, policy: dict, bonus_fields: list | None) -> dict:
+    """Build a manifest record for one markdown file."""
+    full = vault_dir / path
+    try:
+        content = full.read_text(errors='replace')
+    except Exception:
+        content = ''
+    fm, body, _ = parse_frontmatter(content)
+    fm = fm or {}
+    inferred_domain = str(fm.get('domain') or infer_domain(path, schema))
+    inferred_type = str(fm.get('type') or infer_type(path, schema))
+    domain = policy_domain(path, inferred_domain, policy)
+    card_type = policy_type(path, inferred_type, policy)
+    return {
+        'path': path,
+        'stem': Path(path).stem,
+        'domain': domain,
+        'type': card_type,
+        'kind': policy_kind(path, domain, card_type, policy),
+        'richness': content_richness(content, bonus_fields),
+        'title': first_heading(body) or Path(path).stem,
+        'status': fm.get('status', ''),
+        'source': fm.get('source', ''),
+    }
+
+
+def first_heading(body: str) -> str:
+    m = re.search(r'^#\s+(.+)$', body, re.MULTILINE)
+    return m.group(1).strip() if m else ''
+
+
+def same_title(records: list[dict]) -> bool:
+    titles = {str(r.get('title') or '').casefold() for r in records if r.get('title')}
+    return len(titles) <= 1
+
+
+def classify_policy_cluster(records: list[dict], policy: dict) -> tuple[str, str, str]:
+    """Return (action, risk, reason) for a same-stem cluster."""
+    stems = {r['stem'] for r in records}
+    kinds = {r['kind'] for r in records}
+    paths = [r['path'] for r in records]
+    manual_stems = set(policy.get('manual_hold_stems', []))
+    high_risk_stems = set(policy.get('high_risk_stems', []))
+
+    if stems & manual_stems:
+        return 'manual_hold', 'high', 'stem is in manual_hold_stems'
+    if stems & high_risk_stems:
+        return 'manual_hold', 'high', 'stem is in high_risk_stems'
+    if len({p.casefold() for p in paths}) != len(paths):
+        return 'manual_hold', 'high', 'case-only path collision'
+    if not same_title(records):
+        return 'manual_hold', 'high', 'same stem but different headings'
+
+    if len(kinds) == 1:
+        return 'merge_duplicate', 'low', 'same stem and same ontology kind'
+
+    crm_kinds = set(policy.get('crm_overlay_kinds', ['crm']))
+    non_crm = kinds - crm_kinds
+    if non_crm and crm_kinds & kinds:
+        return 'thin_crm_overlay', 'medium', 'crm overlay duplicates canonical ontology layers'
+
+    return 'keep_linked_layers', 'medium', 'same stem spans multiple ontology layers'
+
+
+def build_manifest(vault_dir: Path, schema: dict, schema_path: Path | None = None) -> dict:
+    """Build dry-run manifest without changing vault content."""
+    policy = dedup_policy(schema)
+    bonus_fields = get_richness_fields(schema)
+    by_stem = defaultdict(list)
+
+    for md in walk_vault(vault_dir):
+        path = rel_path(md, vault_dir)
+        if ignored_by_policy(path, policy):
+            continue
+        if md.stem in {'_index', 'MEMORY'}:
+            continue
+        by_stem[md.stem].append(file_record(vault_dir, path, schema, policy, bonus_fields))
+
+    clusters = []
+    for slug, records in sorted(by_stem.items()):
+        if len(records) < 2:
+            continue
+        action, risk, reason = classify_policy_cluster(records, policy)
+        canonical = ''
+        extras = []
+        if action == 'merge_duplicate':
+            canonical, extras = policy_canonical(records, vault_dir, bonus_fields, policy)
+        elif action == 'thin_crm_overlay':
+            crm_kinds = set(policy.get('crm_overlay_kinds', ['crm']))
+            non_crm_records = [r for r in records if r['kind'] not in crm_kinds]
+            canonical, _ = policy_canonical(non_crm_records, vault_dir, bonus_fields, policy)
+            extras = [r['path'] for r in records if r['kind'] in crm_kinds]
+        clusters.append({
+            'id': slug,
+            'slug': slug,
+            'action': action,
+            'risk': risk,
+            'reason': reason,
+            'canonical': canonical,
+            'extras': extras,
+            'approved': False,
+            'records': records,
+        })
+
+    return {
+        'generated_at': datetime.now().isoformat(),
+        'vault': str(vault_dir),
+        'schema': str(schema_path) if schema_path else '',
+        'mode': 'policy',
+        'clusters': clusters,
+        'summary': summarize_manifest(clusters),
+    }
+
+
+def summarize_manifest(clusters: list[dict]) -> dict:
+    actions = defaultdict(int)
+    risks = defaultdict(int)
+    extras = 0
+    for cluster in clusters:
+        actions[cluster['action']] += 1
+        risks[cluster['risk']] += 1
+        extras += len(cluster.get('extras', []))
+    return {
+        'clusters': len(clusters),
+        'extra_files': extras,
+        'actions': dict(sorted(actions.items())),
+        'risks': dict(sorted(risks.items())),
+    }
 
 
 def merge_content(canonical_path: Path, extra_paths: list[Path]) -> bool:
@@ -166,16 +367,195 @@ def redirect_links(vault_dir: Path, old_paths: list[str], canonical: str) -> int
     return count
 
 
-def dedup(vault_dir: Path, apply=False, verbose=False):
+def thin_crm_overlay(vault_dir: Path, crm_path: str, canonical: str) -> bool:
+    """Replace a CRM duplicate body with a compact status overlay."""
+    full = vault_dir / crm_path
+    if not full.exists():
+        return False
+    content = full.read_text(errors='replace')
+    fm, body, fm_lines = parse_frontmatter(content)
+    fm = fm or {}
+    canonical_noext = canonical.replace('.md', '')
+    title = first_heading(body) or Path(crm_path).stem
+    fm['canonical'] = f'[[{canonical_noext}]]'
+    fm['type'] = 'crm'
+    fm['domain'] = 'aimasters-crm'
+    new_fm = write_frontmatter(fm, fm_lines)
+    status = fm.get('status', 'active')
+    new_body = (
+        f"# {title}\n\n"
+        "## CRM Overlay\n"
+        f"- Canonical: [[{canonical_noext}]]\n"
+        f"- Status: {status}\n"
+    )
+    new_content = f"---\n{new_fm}\n---\n{new_body}"
+    if new_content == content:
+        return False
+    full.write_text(new_content)
+    return True
+
+
+def apply_manifest(vault_dir: Path, manifest_path: Path, verbose=False) -> dict:
+    """Apply only entries explicitly marked approved in a manifest."""
+    manifest = json.loads(manifest_path.read_text())
+    today = datetime.now().strftime('%Y-%m-%d')
+    trash_dir = vault_dir / '.trash' / f'dedup-{today}'
+    log_path = vault_dir / '.graph' / 'dedup-log.jsonl'
+    log_path.parent.mkdir(exist_ok=True)
+
+    applied = {
+        'approved': 0,
+        'merged': 0,
+        'thinned': 0,
+        'moved': 0,
+        'links_redirected': 0,
+        'skipped': 0,
+    }
+
+    with open(log_path, 'a') as log_file:
+        for cluster in manifest.get('clusters', []):
+            if not cluster.get('approved'):
+                continue
+            applied['approved'] += 1
+            action = cluster.get('action')
+            canonical = cluster.get('canonical')
+            extras = list(cluster.get('extras') or [])
+            if not canonical:
+                applied['skipped'] += 1
+                continue
+
+            if action == 'merge_duplicate':
+                trash_dir.mkdir(parents=True, exist_ok=True)
+                extra_full = [vault_dir / e for e in extras]
+                merge_content(vault_dir / canonical, extra_full)
+                lr = redirect_links(vault_dir, extras, canonical)
+                moved = []
+                for extra in extras:
+                    src = vault_dir / extra
+                    if not src.exists():
+                        continue
+                    dest = trash_dir / extra
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    src.rename(dest)
+                    moved.append(extra)
+                applied['merged'] += 1
+                applied['moved'] += len(moved)
+                applied['links_redirected'] += lr
+                log_entry = {
+                    'ts': datetime.now().isoformat(),
+                    'action': action,
+                    'slug': cluster.get('slug'),
+                    'canonical': canonical,
+                    'moved': moved,
+                    'links_redirected': lr,
+                    'manifest': str(manifest_path),
+                }
+                log_file.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+                if verbose:
+                    print(f"MERGED {cluster.get('slug')}: {len(moved)} moved")
+
+            elif action == 'thin_crm_overlay':
+                crm_paths = [p for p in extras if p.startswith('crm/aimasters/')]
+                if not crm_paths and canonical.startswith('crm/aimasters/'):
+                    crm_paths = [canonical]
+                changed = 0
+                for crm_path in crm_paths:
+                    if thin_crm_overlay(vault_dir, crm_path, canonical):
+                        changed += 1
+                applied['thinned'] += changed
+                log_entry = {
+                    'ts': datetime.now().isoformat(),
+                    'action': action,
+                    'slug': cluster.get('slug'),
+                    'canonical': canonical,
+                    'thinned': crm_paths,
+                    'manifest': str(manifest_path),
+                }
+                log_file.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+                if verbose:
+                    print(f"THINNED {cluster.get('slug')}: {changed} overlays")
+            else:
+                applied['skipped'] += 1
+
+    out = vault_dir / '.graph' / 'dedup-apply-report.json'
+    out.write_text(json.dumps({
+        'date': today,
+        'manifest': str(manifest_path),
+        **applied,
+    }, indent=2, ensure_ascii=False))
+    return applied
+
+
+def write_manifest(path: Path, manifest: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
+
+
+def print_policy_manifest(manifest: dict, verbose=False) -> None:
+    summary = manifest['summary']
+    print(f"\n{'='*55}")
+    print("  AUTOGRAPH DEDUP - POLICY DRY RUN")
+    print(f"{'='*55}")
+    print(f"  Duplicate clusters: {summary['clusters']}")
+    print(f"  Extra files:        {summary['extra_files']}")
+    print(f"  Actions:            {summary['actions']}")
+    print(f"  Risks:              {summary['risks']}")
+    if verbose:
+        for cluster in manifest['clusters']:
+            print(f"\n  {cluster['slug']} [{cluster['action']}/{cluster['risk']}]:")
+            if cluster.get('canonical'):
+                print(f"    CANONICAL: {cluster['canonical']}")
+            for rec in cluster.get('records', []):
+                marker = '    '
+                if rec['path'] == cluster.get('canonical'):
+                    marker = '  * '
+                print(f"{marker}{rec['path']} ({rec['kind']}, richness={rec['richness']})")
+            if cluster.get('extras'):
+                print(f"    EXTRAS: {', '.join(cluster['extras'])}")
+            print(f"    REASON: {cluster['reason']}")
+
+
+def dedup(vault_dir: Path, schema_path: Path | None = None, apply=False,
+          verbose=False, manifest_path: Path | None = None,
+          apply_manifest_path: Path | None = None):
     today = datetime.now().strftime('%Y-%m-%d')
     trash_dir = vault_dir / '.trash' / f'dedup-{today}'
     log_path = vault_dir / '.graph' / 'dedup-log.jsonl'
 
-    # Load schema for richness fields
     try:
-        schema = load_schema()
+        schema = load_schema(schema_path)
     except FileNotFoundError:
         schema = {}
+
+    if apply_manifest_path:
+        result = apply_manifest(vault_dir, apply_manifest_path, verbose)
+        print(f"Applied manifest: {result}")
+        return
+
+    if is_policy_schema(schema):
+        if apply:
+            print("ERROR: policy schema requires --apply-manifest with approved entries.", file=sys.stderr)
+            sys.exit(2)
+        manifest = build_manifest(vault_dir, schema, schema_path)
+        print_policy_manifest(manifest, verbose)
+        if manifest_path:
+            write_manifest(manifest_path, manifest)
+            print(f"    Manifest:           {manifest_path}")
+        out = vault_dir / '.graph' / 'dedup-report.json'
+        out.parent.mkdir(exist_ok=True)
+        summary = manifest['summary']
+        out.write_text(json.dumps({
+            'date': today,
+            'mode': 'policy',
+            'duplicates': summary['clusters'],
+            'extra_files': summary['extra_files'],
+            'actions': summary['actions'],
+            'risks': summary['risks'],
+            'manifest': str(manifest_path) if manifest_path else '',
+        }, indent=2, ensure_ascii=False))
+        print(f"    Report:             {out}")
+        return
+
     bonus_fields = get_richness_fields(schema)
 
     # Find only safe duplicates: same stem + domain + type
@@ -264,9 +644,25 @@ def dedup(vault_dir: Path, apply=False, verbose=False):
     print(f"    Report:             {out}")
 
 
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='autograph dedup')
+    parser.add_argument('vault_dir')
+    parser.add_argument('schema_path', nargs='?')
+    parser.add_argument('--dry-run', action='store_true', help='explicit no-op dry run')
+    parser.add_argument('--apply', action='store_true', help='legacy apply; blocked for policy schemas')
+    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--manifest', help='write dry-run manifest JSON')
+    parser.add_argument('--apply-manifest', help='apply approved entries from manifest JSON')
+    return parser.parse_args(argv)
+
+
 if __name__ == '__main__':
-    args = sys.argv[1:]
-    if not args:
-        print("Usage: dedup.py <vault-dir> [--apply] [--verbose]", file=sys.stderr)
-        sys.exit(1)
-    dedup(Path(args[0]), '--apply' in args, '--verbose' in args)
+    ns = parse_args(sys.argv[1:])
+    dedup(
+        Path(ns.vault_dir),
+        Path(ns.schema_path) if ns.schema_path else None,
+        apply=ns.apply,
+        verbose=ns.verbose,
+        manifest_path=Path(ns.manifest) if ns.manifest else None,
+        apply_manifest_path=Path(ns.apply_manifest) if ns.apply_manifest else None,
+    )

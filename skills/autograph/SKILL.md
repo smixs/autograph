@@ -18,7 +18,7 @@ One schema. One graph. Works on any vault.
 
 No hardcoded domains, types, or paths. The agent discovers structure from data, builds a schema, then enforces it. All scripts share `common.py`. Zero external dependencies (stdlib only, API calls via urllib).
 
-## Quick Reference: 4 Workflows
+## Quick Reference: 5 Workflows
 
 | Workflow | When to use | Entry point |
 |----------|-------------|-------------|
@@ -26,6 +26,7 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 | **HEALTH** | Daily maintenance / on request | `graph.py health` → fix → moc → decay |
 | **CREATE** | New knowledge card | Schema lookup → write file → link → touch |
 | **SEARCH & LINK** | Find info + strengthen connections | Hub → links → target; `graph.py orphans` → connect |
+| **ORCHESTRATE** | Automated multi-agent workflows (no API keys) | `orchestrate.py health\|bootstrap` |
 
 ---
 
@@ -160,6 +161,47 @@ uv run scripts/graph.py health <vault-dir>          # verify improvement
 
 ---
 
+## Workflow 5: ORCHESTRATE (automated multi-agent workflows)
+
+**When to use:** Instead of running scripts manually. No API keys — the Claude Code agent does all judgment directly.
+
+### Phase 0: Script sequencing
+
+```bash
+python3 scripts/orchestrate.py health <vault-dir>      # automated health workflow
+python3 scripts/orchestrate.py bootstrap <vault-dir>    # full bootstrap (one command)
+```
+
+`health` runs: graph check > fix broken links > link cleanup > MOC > decay > verify.
+`bootstrap` runs: enforce > cleanup > tags > dedup > swarm-links > MOC > verify.
+
+### Phases 1-3: Agent judgment (no API keys)
+
+The agent (you) does the judgment directly — read prepared data, decide, write results.
+
+```bash
+# Phase 1: prep dedup clusters for YOUR review
+python3 scripts/orchestrate.py dedup-prepare <vault-dir>
+# -> writes .graph/dedup-review-input.json
+# -> YOU read clusters, mark approved=true, then: dedup.py --apply-manifest
+
+# Phase 2: prep domain catalogs for YOUR link suggestions
+python3 scripts/orchestrate.py link-prepare <vault-dir>
+# -> writes .graph/link-review-input.json
+# -> YOU read catalogs, suggest links per domain, write batch results
+
+# Phase 3: prep graph data for YOUR semantic analysis
+python3 scripts/orchestrate.py graph-prepare <vault-dir>
+# -> writes .graph/graph-analysis-input.json
+# -> YOU analyze contradictions, missing links, stale hubs, write findings
+```
+
+For Phases 1-3: run the prep command, read the output JSON, do the analysis yourself (you ARE the LLM), write results back. Use Agent tool for parallel domain work in Phase 2.
+
+---
+
+---
+
 ## Decay Engine (Ebbinghaus)
 
 The decay system models memory with three key mechanisms:
@@ -240,6 +282,7 @@ uv run scripts/link_cleanup.py <vault-dir> --apply                              
 | dedup.py | Workflow 1: safe merge + .trash/ |
 | graph.py | Workflow 2/4: health score, link repair, backlinks, orphans |
 | moc.py | Workflow 2: MOC generation per domain |
+| orchestrate.py | Workflow 5: multi-agent orchestration (health, bootstrap, dedup-review, link-enrich, graph-analyze) |
 | engine.py | Workflow 2/3: decay (Ebbinghaus), touch (graduated), creative, stats, init |
 | daily.py | Entity extraction from memory files |
 | test_autograph.py | Self-contained tests (~193 cases, temp fixtures) |

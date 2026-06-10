@@ -606,8 +606,62 @@ def main():
         test("dedup exits 0", code == 0, err[:300])
         # We have bob.md in two places, so duplicates should be found
         test("dedup finds duplicates",
-             'Duplicate slugs' in out or 'No duplicates' in out,
+             'Duplicate groups' in out or 'No duplicates' in out,
              out[:200])
+
+        policy_vault = tmp / 'policy-vault'
+        (policy_vault / 'pu').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'aimasters/contacts').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'aimasters/clients').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'crm/aimasters').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'pu/alex.md').write_text(
+            "---\ntype: power_user\ndomain: aimasters\nstatus: active\n---\n# Alex\n")
+        (policy_vault / 'aimasters/contacts/alex.md').write_text(
+            "---\ntype: contact\ndomain: aimasters\nstatus: active\n---\n# Alex\n")
+        (policy_vault / 'aimasters/clients/acme.md').write_text(
+            "---\ntype: client\ndomain: aimasters\nstatus: active\n---\n# Acme\n")
+        (policy_vault / 'aimasters/contacts/acme.md').write_text(
+            "---\ntype: contact\ndomain: aimasters\nstatus: active\n---\n# Acme\n")
+        policy_schema = dict(SCHEMA)
+        policy_schema['node_types'] = dict(SCHEMA['node_types'])
+        policy_schema['node_types']['power_user'] = {
+            "description": "Power user", "required": ["description"], "status": ["active"]
+        }
+        policy_schema['node_types']['client'] = {
+            "description": "Client", "required": ["description"], "status": ["active"]
+        }
+        policy_schema['node_types']['crm'] = {
+            "description": "CRM overlay", "required": ["description"], "status": ["active"]
+        }
+        policy_schema['dedup_policy'] = {
+            "canonical_priority": [
+                "pu/",
+                "aimasters/clients/",
+                "aimasters/contacts/",
+                "crm/aimasters/"
+            ],
+            "path_rules": [
+                {"prefix": "pu/", "domain": "aimasters-pu", "type": "power_user", "kind": "power_user"},
+                {"prefix": "aimasters/clients/", "domain": "aimasters-clients", "type": "client", "kind": "client"},
+                {"prefix": "aimasters/contacts/", "domain": "aimasters-contacts", "type": "contact", "kind": "contact"},
+                {"prefix": "crm/aimasters/", "domain": "aimasters-crm", "type": "crm", "kind": "crm"}
+            ]
+        }
+        policy_schema_path = tmp / 'policy-schema.json'
+        policy_schema_path.write_text(json.dumps(policy_schema))
+        policy_manifest = tmp / 'policy-manifest.json'
+        code, out, err = run([py, str(SCRIPTS_DIR / 'dedup.py'), str(policy_vault),
+                              str(policy_schema_path), '--dry-run', '--manifest',
+                              str(policy_manifest), '--verbose'])
+        test("dedup policy manifest exits 0", code == 0, err[:300])
+        test("dedup policy manifest writes file", policy_manifest.exists())
+        test("dedup policy does not move PU/client into contacts",
+             'MOVE:' not in out and 'policy' in policy_manifest.read_text(),
+             out[:300])
+        manifest_data = json.loads(policy_manifest.read_text())
+        actions = {c['slug']: c['action'] for c in manifest_data['clusters']}
+        test("dedup policy keeps layered PU/contact", actions.get('alex') == 'keep_linked_layers', str(actions))
+        test("dedup policy keeps client/contact layers", actions.get('acme') == 'keep_linked_layers', str(actions))
 
         # --- daily.py ---
         print("\n--- daily.py ---")
