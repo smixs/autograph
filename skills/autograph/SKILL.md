@@ -7,7 +7,6 @@ description: >-
   a vault, fixing wikilinks, finding orphans or backlinks, extracting entities from
   daily files, or touching/promoting cards.
   Do NOT use for content generation or non-vault file operations.
-  For quick health checks without schema enforcement, prefer vault-health skill.
 ---
 
 # autograph — typed vault engine
