@@ -611,17 +611,17 @@ def main():
 
         policy_vault = tmp / 'policy-vault'
         (policy_vault / 'pu').mkdir(parents=True, exist_ok=True)
-        (policy_vault / 'aimasters/contacts').mkdir(parents=True, exist_ok=True)
-        (policy_vault / 'aimasters/clients').mkdir(parents=True, exist_ok=True)
-        (policy_vault / 'crm/aimasters').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'sample/contacts').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'sample/clients').mkdir(parents=True, exist_ok=True)
+        (policy_vault / 'crm/sample').mkdir(parents=True, exist_ok=True)
         (policy_vault / 'pu/alex.md').write_text(
-            "---\ntype: power_user\ndomain: aimasters\nstatus: active\n---\n# Alex\n")
-        (policy_vault / 'aimasters/contacts/alex.md').write_text(
-            "---\ntype: contact\ndomain: aimasters\nstatus: active\n---\n# Alex\n")
-        (policy_vault / 'aimasters/clients/acme.md').write_text(
-            "---\ntype: client\ndomain: aimasters\nstatus: active\n---\n# Acme\n")
-        (policy_vault / 'aimasters/contacts/acme.md').write_text(
-            "---\ntype: contact\ndomain: aimasters\nstatus: active\n---\n# Acme\n")
+            "---\ntype: power_user\ndomain: sample\nstatus: active\n---\n# Alex\n")
+        (policy_vault / 'sample/contacts/alex.md').write_text(
+            "---\ntype: contact\ndomain: sample\nstatus: active\n---\n# Alex\n")
+        (policy_vault / 'sample/clients/acme.md').write_text(
+            "---\ntype: client\ndomain: sample\nstatus: active\n---\n# Acme\n")
+        (policy_vault / 'sample/contacts/acme.md').write_text(
+            "---\ntype: contact\ndomain: sample\nstatus: active\n---\n# Acme\n")
         policy_schema = dict(SCHEMA)
         policy_schema['node_types'] = dict(SCHEMA['node_types'])
         policy_schema['node_types']['power_user'] = {
@@ -636,15 +636,15 @@ def main():
         policy_schema['dedup_policy'] = {
             "canonical_priority": [
                 "pu/",
-                "aimasters/clients/",
-                "aimasters/contacts/",
-                "crm/aimasters/"
+                "sample/clients/",
+                "sample/contacts/",
+                "crm/sample/"
             ],
             "path_rules": [
-                {"prefix": "pu/", "domain": "aimasters-pu", "type": "power_user", "kind": "power_user"},
-                {"prefix": "aimasters/clients/", "domain": "aimasters-clients", "type": "client", "kind": "client"},
-                {"prefix": "aimasters/contacts/", "domain": "aimasters-contacts", "type": "contact", "kind": "contact"},
-                {"prefix": "crm/aimasters/", "domain": "aimasters-crm", "type": "crm", "kind": "crm"}
+                {"prefix": "pu/", "domain": "sample-pu", "type": "power_user", "kind": "power_user"},
+                {"prefix": "sample/clients/", "domain": "sample-clients", "type": "client", "kind": "client"},
+                {"prefix": "sample/contacts/", "domain": "sample-contacts", "type": "contact", "kind": "contact"},
+                {"prefix": "crm/sample/", "domain": "sample-crm", "type": "crm", "kind": "crm"}
             ]
         }
         policy_schema_path = tmp / 'policy-schema.json'

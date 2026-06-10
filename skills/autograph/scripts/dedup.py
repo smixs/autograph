@@ -367,7 +367,9 @@ def redirect_links(vault_dir: Path, old_paths: list[str], canonical: str) -> int
     return count
 
 
-def thin_crm_overlay(vault_dir: Path, crm_path: str, canonical: str) -> bool:
+def thin_crm_overlay(
+    vault_dir: Path, crm_path: str, canonical: str, schema: dict | None = None
+) -> bool:
     """Replace a CRM duplicate body with a compact status overlay."""
     full = vault_dir / crm_path
     if not full.exists():
@@ -379,7 +381,10 @@ def thin_crm_overlay(vault_dir: Path, crm_path: str, canonical: str) -> bool:
     title = first_heading(body) or Path(crm_path).stem
     fm['canonical'] = f'[[{canonical_noext}]]'
     fm['type'] = 'crm'
-    fm['domain'] = 'aimasters-crm'
+    # Domain comes from the schema's domain_inference — never hardcoded.
+    domain = infer_domain(crm_path, schema) if schema else ''
+    if domain:
+        fm['domain'] = domain
     new_fm = write_frontmatter(fm, fm_lines)
     status = fm.get('status', 'active')
     new_body = (
@@ -395,7 +400,9 @@ def thin_crm_overlay(vault_dir: Path, crm_path: str, canonical: str) -> bool:
     return True
 
 
-def apply_manifest(vault_dir: Path, manifest_path: Path, verbose=False) -> dict:
+def apply_manifest(
+    vault_dir: Path, manifest_path: Path, verbose=False, schema: dict | None = None
+) -> dict:
     """Apply only entries explicitly marked approved in a manifest."""
     manifest = json.loads(manifest_path.read_text())
     today = datetime.now().strftime('%Y-%m-%d')
@@ -455,12 +462,15 @@ def apply_manifest(vault_dir: Path, manifest_path: Path, verbose=False) -> dict:
                     print(f"MERGED {cluster.get('slug')}: {len(moved)} moved")
 
             elif action == 'thin_crm_overlay':
-                crm_paths = [p for p in extras if p.startswith('crm/aimasters/')]
-                if not crm_paths and canonical.startswith('crm/aimasters/'):
-                    crm_paths = [canonical]
+                # build_manifest puts only overlay-kind paths (crm_overlay_kinds)
+                # into extras, so trust the approved manifest — no path hardcode.
+                crm_paths = list(extras)
+                if not crm_paths:
+                    applied['skipped'] += 1
+                    continue
                 changed = 0
                 for crm_path in crm_paths:
-                    if thin_crm_overlay(vault_dir, crm_path, canonical):
+                    if thin_crm_overlay(vault_dir, crm_path, canonical, schema):
                         changed += 1
                 applied['thinned'] += changed
                 log_entry = {
@@ -528,7 +538,7 @@ def dedup(vault_dir: Path, schema_path: Path | None = None, apply=False,
         schema = {}
 
     if apply_manifest_path:
-        result = apply_manifest(vault_dir, apply_manifest_path, verbose)
+        result = apply_manifest(vault_dir, apply_manifest_path, verbose, schema=schema)
         print(f"Applied manifest: {result}")
         return
 
