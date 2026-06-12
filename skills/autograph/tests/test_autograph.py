@@ -457,6 +457,31 @@ def main():
              'spans multiple lines' in rebuilt_partial,
              f"got: {rebuilt_partial}")
 
+        # 1.15b regression: folded description whose continuation contains a COLON
+        # (e.g. "Role: detail") must not duplicate on rewrite. Continuation lines
+        # are continuation by INDENTATION, not by absence of a colon.
+        colon_fm = ("---\ntype: lead\n"
+                    "description: >-\n"
+                    "  Subscriber/contact: interested in total life-tracking\n"
+                    "  via AI agents (sleep, recovery, meetings)\n"
+                    "status: active\n---\n# Body\n")
+        fm_c, _, orig_c = parse_frontmatter(colon_fm)
+        joined = ("Subscriber/contact: interested in total life-tracking "
+                  "via AI agents (sleep, recovery, meetings)")
+        test("colon-in-fold parse: joined once",
+             fm_c.get('description') == joined,
+             f"got: {fm_c.get('description')!r}")
+        rebuilt_c = write_frontmatter(fm_c, orig_c)
+        fm_c_rt, _, _ = parse_frontmatter(f"---\n{rebuilt_c}\n---\n")
+        test("colon-in-fold rewrite: no duplication",
+             fm_c_rt.get('description') == joined,
+             f"got: {fm_c_rt.get('description')!r}")
+        # Same fields rewritten again → byte-identical output (idempotent)
+        rebuilt_c2 = write_frontmatter(fm_c_rt, rebuilt_c.split('\n'))
+        test("colon-in-fold rewrite: idempotent",
+             rebuilt_c2 == rebuilt_c,
+             f"r1={rebuilt_c!r}\nr2={rebuilt_c2!r}")
+
         # 1.16 deterministic link resolver
         resolver_vault = tmp / 'resolver-vault'
         (resolver_vault / 'docs/cards').mkdir(parents=True, exist_ok=True)
