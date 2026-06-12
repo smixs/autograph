@@ -255,7 +255,9 @@ def write_frontmatter(fields: dict, original_lines: list[str]) -> str:
         written.add(key)
         if key in fields:
             out.append(format_field(key, fields[key]))
-            if val_part in ('>-', '>', '|-', '|'):
+            # '' covers block-style lists and pending multiline values —
+            # their indented continuation lines are replaced wholesale too.
+            if val_part in ('>-', '>', '|-', '|', ''):
                 skip_continuation = True
         else:
             out.append(line)

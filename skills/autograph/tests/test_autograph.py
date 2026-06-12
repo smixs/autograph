@@ -482,6 +482,26 @@ def main():
              rebuilt_c2 == rebuilt_c,
              f"r1={rebuilt_c!r}\nr2={rebuilt_c2!r}")
 
+        # 1.15c regression: BLOCK-style list continuations must be skipped when
+        # the key is rewritten — same bug family as 1.15b, different trigger.
+        # Before the fix the old "- item" lines survived as orphans under the
+        # new flow-style line.
+        block_fm = ("---\ntype: note\n"
+                    "tags:\n"
+                    "  - project\n"
+                    "  - index\n"
+                    "status: active\n---\n# Body\n")
+        fm_b, _, orig_b = parse_frontmatter(block_fm)
+        fm_b['tags'] = ['project', 'index', 'extra']
+        rebuilt_b = write_frontmatter(fm_b, orig_b)
+        test("block-list rewrite: no orphan items",
+             '\n  - ' not in rebuilt_b and '- project' not in rebuilt_b.replace('[project', ''),
+             f"got: {rebuilt_b!r}")
+        fm_b_rt, _, _ = parse_frontmatter(f"---\n{rebuilt_b}\n---\n")
+        test("block-list rewrite: list intact",
+             fm_b_rt.get('tags') == ['project', 'index', 'extra'],
+             f"got: {fm_b_rt.get('tags')!r}")
+
         # 1.16 deterministic link resolver
         resolver_vault = tmp / 'resolver-vault'
         (resolver_vault / 'docs/cards').mkdir(parents=True, exist_ok=True)
