@@ -46,17 +46,17 @@ SCHEMA = {
         "note": {
             "description": "Knowledge note",
             "required": ["description", "tags"],
-            "status": ["active", "draft", "archived"]
+            "status": ["active", "draft", "archived", "superseded"]
         },
         "contact": {
             "description": "Person",
             "required": ["description", "tags", "status"],
-            "status": ["active", "inactive"]
+            "status": ["active", "inactive", "superseded"]
         },
         "project": {
             "description": "Project with deliverables",
             "required": ["description", "tags", "status"],
-            "status": ["active", "done", "paused", "cancelled"]
+            "status": ["active", "done", "paused", "cancelled", "superseded"]
         },
         "lead": {
             "description": "Sales lead",
@@ -628,6 +628,39 @@ def main():
                               str(vault_dir), str(schema_path)])
         test("enforce exits 0", code == 0, err[:300])
         test("enforce shows compliance score", 'SCHEMA COMPLIANCE' in out, out[:300])
+
+        # enforce regression: `superseded` status must survive when it's in the enum,
+        # but be remapped when it isn't (proves why the schema change is mandatory).
+        _schema_cache.clear()
+        sup_vault = tmp / 'superseded-vault'
+        sup_vault.mkdir(parents=True, exist_ok=True)
+        card = ("---\ntype: project\nstatus: superseded\ntags: [x, y]\n"
+                "description: Retired project\nsuperseded_by: '[[new-project]]'\n---\n# Old\n")
+        (sup_vault / 'old.md').write_text(card, encoding="utf-8")
+        # schema WITH superseded in the enum
+        sup_schema = tmp / 'schema-with-superseded.json'
+        sup_schema.write_text(json.dumps(SCHEMA, indent=2, ensure_ascii=False))
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(sup_vault), str(sup_schema), '--apply'])
+        test("enforce (with superseded) exits 0", code == 0, err[:300])
+        kept = (sup_vault / 'old.md').read_text(encoding="utf-8")
+        test("enforce keeps status: superseded when in enum",
+             'status: superseded' in kept, kept[:200])
+        # control: schema WITHOUT superseded → remapped to first valid status (active)
+        _schema_cache.clear()
+        ctrl_vault = tmp / 'superseded-control'
+        ctrl_vault.mkdir(parents=True, exist_ok=True)
+        (ctrl_vault / 'old.md').write_text(card, encoding="utf-8")
+        no_sup = json.loads(json.dumps(SCHEMA))
+        no_sup['node_types']['project']['status'] = ["active", "done", "paused", "cancelled"]
+        ctrl_schema = tmp / 'schema-no-superseded.json'
+        ctrl_schema.write_text(json.dumps(no_sup, indent=2, ensure_ascii=False))
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(ctrl_vault), str(ctrl_schema), '--apply'])
+        remapped = (ctrl_vault / 'old.md').read_text(encoding="utf-8")
+        test("enforce remaps superseded when NOT in enum",
+             'status: superseded' not in remapped and 'status: active' in remapped,
+             remapped[:200])
 
         # --- discover.py ---
         print("\n--- discover.py ---")
