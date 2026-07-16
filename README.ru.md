@@ -1,184 +1,117 @@
 <div align="center">
 
-# 🧠 autograph
+# autograph
 
-<img src=".github/assets/hero.webp" alt="autograph knowledge graph" width="560">
+<img src=".github/assets/hero.webp" alt="autograph — типизированный граф памяти для Obsidian" width="560">
 
-**Типизированный слой памяти для always-on агентов. Одна схема, один граф, любой Obsidian-vault.**
+**Память как код для AI-агентов, пишущих в Obsidian-vault.**
+Одна `schema.json` держит vault типизированным, связанным, без дублей и с забыванием — сама.
 
-[![Version](https://img.shields.io/badge/version-0.1.0--beta-4dc9f6?style=flat-square&labelColor=0a0e14)](https://github.com/smixs/autograph/releases)
-[![Python](https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-220%2F220-b0e8ff?style=flat-square&labelColor=0a0e14)](https://github.com/smixs/autograph)
-[![License](https://img.shields.io/badge/license-MIT-ffffff?style=flat-square&labelColor=0a0e14)](./LICENSE)
+[![skills.sh](https://skills.sh/b/smixs/autograph)](https://skills.sh/smixs/autograph)
+[![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-4dc9f6?style=flat&labelColor=0a0e14)](https://code.claude.com/docs/en/plugins)
+[![Tests](https://img.shields.io/badge/tests-256%2F256-b0e8ff?style=flat&labelColor=0a0e14)](./skills/autograph/tests)
+[![License](https://img.shields.io/badge/license-MIT-ffffff?style=flat&labelColor=0a0e14)](./LICENSE)
 
-[🇬🇧 English](./README.md) · **🇷🇺 Русский**
+[English](./README.md) · Русский
 
 </div>
 
 ---
 
-Агент каждый день пишет тебе заметки в Obsidian — голосовые расшифровки, встречи, идеи, контакты. Через месяц там 800 файлов, битые wiki-ссылки, дубликаты, и никто не помнит, что значит поле `status: ongoing` против `status: active`. **`autograph` — это слой, который всё это держит в порядке автоматически.**
+**autograph** — движок памяти для [Obsidian](https://obsidian.md)-vault, в который пишут AI-агенты. Таксономию задаёшь один раз в `schema.json`: типы карточек, папки, допустимые статусы, скорость забывания для каждого вида знаний. Дальше движок сам раскладывает новые карточки, чинит wiki-ссылки, сливает дубли сущностей, забывает то, что перестал трогать, и считает health-скор. Это обычный Markdown, который принадлежит тебе, а не хостинговая база — те же файлы остаются человекочитаемым вторым мозгом. Скрипты на голом Python stdlib, ноль внешних зависимостей, 256 тестов.
 
-Ты описываешь один раз в `schema.json`: какие бывают типы карточек (заметка, контакт, проект, CRM-сделка), в какой папке что лежит, как быстро стареет знание, какие статусы допустимы. Дальше движок сам: раскладывает новые файлы, чинит ссылки, забывает то, что не трогал полгода, сливает дубликаты, считает health-score. Один `schema.json` понимают и Claude Code, и OpenClaw, и Hermes, и Codex — любой агент, который пишет в твой vault.
+Проблема, которую он решает: always-on агент каждый день сыпет заметки в vault — голос, встречи, контакты, идеи. Через месяц там 800 файлов, битые ссылки, три карточки на одного человека и непонятно, `status: ongoing` — это то же, что `status: active`, или нет. autograph держит это в порядке без ручного досмотра.
 
-<details>
-<summary><b>📋 Оглавление</b></summary>
+## Установка
 
-- [⚡ Установка](#-установка)
-- [🚀 Быстрый старт](#-быстрый-старт)
-- [💡 Сценарии использования](#-сценарии-использования)
-- [⏰ Расписание (cron)](#-расписание-cron)
-- [🧬 Как работает decay](#-как-работает-decay)
-- [📦 Что внутри](#-что-внутри)
-- [🔗 Откуда проект](#-откуда-проект)
+Одна команда ставит autograph в того агента, которым ты пользуешься, — папку он выберет сам:
 
-</details>
+```bash
+npx skills add smixs/autograph
+```
 
-## ⚡ Установка
+Это [skills.sh](https://skills.sh) — открытый реестр Agent Skills. Работает с Claude Code, Codex, Cursor, OpenClaw, Hermes и 70+ другими.
 
-<details>
-<summary><b>Claude Code</b> — marketplace или прямая установка</summary>
+**Claude Code как плагин** (read-only, всегда актуальный):
 
 ```
 /plugin marketplace add smixs/autograph
 /plugin install autograph@autograph
 ```
 
-Без регистрации marketplace:
+Или из шелла: `claude plugin marketplace add smixs/autograph && claude plugin install autograph@autograph`.
 
-```
-/plugin install github:smixs/autograph
-```
-
-Обновить / удалить:
-
-```
-/plugin marketplace update autograph
-/plugin uninstall autograph
-```
-
-</details>
-
-<details>
-<summary><b>OpenClaw</b> — через bundle-детект <code>.claude-plugin/plugin.json</code></summary>
+## Быстрый старт
 
 ```bash
-git clone https://github.com/smixs/autograph.git ~/dev/autograph
-openclaw plugins install ~/dev/autograph
-openclaw gateway restart
+# Собрать схему для пустого или хаотичного vault (интерактивно)
+/autograph:research /path/to/vault
+
+# Ежедневный health-чек
+uv run skills/autograph/scripts/graph.py health /path/to/vault
+#  health: 94/100 · broken_links: 0 · orphans: 2 · desc_coverage: 88%
+
+# Пересчитать relevance + tier для всех карточек
+uv run skills/autograph/scripts/engine.py decay /path/to/vault
+
+# Перегенерировать Map-of-Content индексы
+uv run skills/autograph/scripts/moc.py generate /path/to/vault
 ```
 
-Skill встанет в `~/.openclaw/skills/autograph/`, команда `/autograph:research` доступна глобально. Для одного workspace — клонируй в `<workspace>/.agents/skills/autograph/`.
+Полный 10-фазный bootstrap (discover → schema → enforce → dedup → link → MOC → verify) — в [`bootstrap-workflow.md`](./skills/autograph/references/bootstrap-workflow.md).
 
-</details>
+## Чем отличается
 
-<details>
-<summary><b>Hermes</b> (NousResearch) — github source</summary>
+- **Твои файлы, твой формат.** Память — это Markdown в твоём vault: без API, без чужой базы, без лок-ина. Открывается в Obsidian, ищется grep'ом, бэкапится через git.
+- **Обновляет на месте, а не плодит дубли.** Новый факт противоречит старому (сменил работу, проект переименован)? autograph переписывает текущее значение, а старое уносит в append-only секцию `## History` — двух конфликтующих карточек не остаётся. Одна сущность под двумя именами файлов сливается по идентичности, не только по точному совпадению имени.
+- **Забывает осознанно.** Модель забывания Эббингауза понижает карточки, которые ты перестал трогать, — рабочий набор остаётся маленьким, важное — «тёплым».
+- **Схема как код, ноль захардкоженных доменов.** Каждый тип, папка, статус и скорость распада читаются из `schema.json`. Один файл управляет всеми агентами, пишущими в vault.
 
-```bash
-hermes skills install github:smixs/autograph/skills/autograph
-```
+**Чего он не делает:** не выдумывает структуру, которую ты не описал, и не поднимает embeddings-сервер — поиск это BM25 + реранк по графу ссылок поверх сырого Markdown (плотный гибридный поиск — опционально).
 
-Skill окажется в `~/.hermes/skills/autograph/`. Hermes не поддерживает slash-команды в формате Claude Code — `commands/research.md` игнорируется, но вся логика живёт в skill, вызови его по имени в чате.
+## Сделан для масштаба, на котором idea-файлы ломаются
 
-Переезжаешь с OpenClaw на Hermes? `hermes claw migrate` перенесёт autograph в `~/.hermes/skills/openclaw-imports/`.
+[llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) Андрея Карпаты попал в точку с рамкой: LLM должна *компилировать* знание в живые Markdown-страницы, а не выводить его заново из вектор-стора на каждый запрос. autograph стоит на тех же трёх слоях — сырые источники, страницы, написанные LLM, схема-конвенции, — с одним отличием, которое решает всё по мере роста vault: **конвенции здесь код, а не проза.**
 
-</details>
+Гист сам проводит границу: навигация от индекса «работает на удивление хорошо на умеренном масштабе (~100 источников, ~сотни страниц)». За этой границей прозаические конвенции расходятся между сессиями, одна сущность обрастает двумя именами, противоречия копятся отмеченными-но-нерешёнными, а устаревшие страницы не уходят. autograph — движок для той стороны границы:
 
-<details>
-<summary><b>Codex</b> — через symlink</summary>
+- **Там `lint` — это промпт, который надо не забыть запустить. Здесь это циклы, которые крутит система** — enforce, dedup, decay, health-скор — с 256 тестами, которые держат схему даже в неудачный день модели.
+- **Противоречия разрешаются, а не просто отмечаются.** «Новые данные противоречат старому утверждению» превращается в update-in-place supersede с провенансом: текущее значение переписывается, старое уходит в append-only строку `## History`.
+- **Одна сущность под двумя именами файлов сливается по идентичности** — email, handle, телефон, — а не в надежде, что модель вспомнит про перекрёстную ссылку.
+- **Ничего не копится вечно.** Распад по Эббингаузу понижает то, что ты перестал трогать, — рабочий набор остаётся читаемым и на десяти тысячах заметок, а не только на паре сотен.
 
-```bash
-git clone https://github.com/smixs/autograph.git ~/dev/autograph
-ln -s ~/dev/autograph/.claude-plugin ~/dev/autograph/.codex-plugin
-```
+Карпаты ответил на вопрос, *кто* поддерживает вики, — LLM. autograph отвечает на вопрос, *правильно* ли это делается.
 
-Добавь `~/dev/autograph` в agents-конфиг Codex.
+## autograph против хостинговой памяти агентов
 
-</details>
+| | autograph | mem0 / Letta | basic-memory |
+|---|---|---|---|
+| Хранилище | Markdown в твоём Obsidian-vault | Хостинг-БД / вектор-стор | Локальный Markdown (MCP) |
+| Владение | Твои файлы, дружат с git | Сервис вендора | Локальные файлы |
+| Типизированная схема + распад | Да (схема-как-код, Эббингауз) | Частично | Нет |
+| Дедуп + починка ссылок + health | Да | Нет | Нет |
+| Раннтайм | Любой агент (skills.sh) | SDK / API | MCP-клиенты |
+| Внешние зависимости | Нет (Python stdlib) | Облачный аккаунт | MCP-сервер |
 
-## 🚀 Быстрый старт
-
-```bash
-# 1. На любом vault — пустом, хаотичном, или уже наполненном
-/autograph:research /путь/к/vault
-
-# 2. Ежедневный health check
-uv run skills/autograph/scripts/graph.py health /путь/к/vault
-
-# 3. Прогон decay: пересчёт relevance и tier для всех карточек
-uv run skills/autograph/scripts/engine.py decay /путь/к/vault
-
-# 4. Перегенерация Map-of-Content индексов
-uv run skills/autograph/scripts/moc.py generate /путь/к/vault
-```
-
-Полный bootstrap (10 фаз: discover → generate → swarm → enforce → cleanup → tag → dedup → link → MOC → verify) — в `skills/autograph/references/bootstrap-workflow.md`.
-
-## 💡 Сценарии использования
+## Сценарии
 
 | Сценарий | Команды | Зачем |
 |---|---|---|
-| **Аудит чужого vault** | `discover.py` → `graph.py health` → `graph.py fix --apply` | Понять состояние перед любыми изменениями |
-| **Bootstrap пустого или хаотичного** | `/autograph:research <vault>` | Интерактивный Q&A + рой explorer-агентов → draft схемы → твоё approve |
-| **Создание карточки с линками** | Workflow 3 в SKILL.md: тип → путь → frontmatter → `## Related` (hub + 2 siblings) → `engine.py touch` | Orphan-карточки — мёртвое знание. Skill отказывается "закрывать" задачу пока линки не проставлены |
-| **Импорт из CRM / внешнего источника** | `engine.py init` → `enforce.py --apply` → `enrich.py tags --apply` → `enrich.py swarm-links --apply` | Экспорт из HubSpot / Notion / OneNote / Apple Notes становится неотличим от ручных карточек |
-| **Spaced repetition забытого** | `engine.py creative 5 <vault>` + cron | 5 самых старых карточек поднимаются в `warm` tier для повторного просмотра |
+| **Аудит чужого vault** | `discover.py` → `graph.py health` → `graph.py fix --apply` | Понять состояние до того, как что-то трогать |
+| **Bootstrap пустого/хаотичного vault** | `/autograph:research <vault>` | Q&A + рой агентов-исследователей → черновик схемы → твоё одобрение |
+| **Карточка, которая останется связанной** | Workflow 3 в `SKILL.md`: dedup-first → тип → `## Related` (hub + 2 соседа) → `touch` | Скилл не закончит, пока карточка не связана — сироты это мёртвое знание |
+| **Факт изменился** | dedup-first поиск → SUPERSEDE: переписать значение, старое → `## History` | Одна карточка на субъект с историей, а не дубль |
+| **Импорт из CRM / экспорта** | `engine.py init` → `enforce.py --apply` → `enrich.py tags --apply` | Экспорты HubSpot / Notion / Apple Notes становятся родными карточками |
+| **Вернуть забытое** | `engine.py creative 5 <vault>` + cron | Самые старые карточки всплывают в `warm` на повтор |
 
-## ⏰ Расписание (cron)
+## Как работает распад
 
-Ночью — decay + health. По воскресеньям — dedup + MOC.
-
-<details>
-<summary><b>OpenClaw cron</b></summary>
-
-```bash
-openclaw cron add --name "autograph-daily" \
-  --cron "0 3 * * *" --tz "Europe/Amsterdam" \
-  --session isolated --tools exec,read \
-  --message "uv run ~/.openclaw/skills/autograph/scripts/engine.py decay /path/to/vault && uv run ~/.openclaw/skills/autograph/scripts/graph.py health /path/to/vault"
-
-openclaw cron add --name "autograph-weekly" \
-  --cron "0 4 * * 0" --tz "Europe/Amsterdam" \
-  --session isolated --tools exec,read \
-  --message "uv run ~/.openclaw/skills/autograph/scripts/dedup.py /path/to/vault --apply && uv run ~/.openclaw/skills/autograph/scripts/moc.py generate /path/to/vault"
-```
-
-</details>
+Память в стиле Эббингауза, все ручки — в `schema.decay`.
 
 <details>
-<summary><b>Hermes cron</b></summary>
+<summary><b>1. Счётчик обращений (spacing effect)</b></summary>
 
-```bash
-hermes cron create "0 3 * * *" "autograph decay + health on /path/to/vault" --skill autograph
-hermes cron create "0 4 * * 0" "autograph dedup + MOC on /path/to/vault" --skill autograph
-```
-
-Вывод джобов — в `~/.hermes/cron/output/{job_id}/{ts}.md`.
-
-</details>
-
-<details>
-<summary><b>Системный cron</b></summary>
-
-```cron
-0 3 * * *  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/engine.py decay . >/tmp/autograph-decay.log 2>&1
-5 3 * * *  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/graph.py health . >/tmp/autograph-health.log 2>&1
-0 4 * * 0  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/moc.py generate . >/tmp/autograph-moc.log 2>&1
-```
-
-</details>
-
-**Целевые метрики:** health ≥ 90, broken_links = 0, description coverage ≥ 80%, stale (>90d) < 20%.
-
-## 🧬 Как работает decay
-
-Память моделируется по Эббингаузу — три механизма, всё настраивается в `schema.decay`:
-
-<details>
-<summary><b>1. Access count (spacing effect)</b></summary>
-
-Каждый `touch` инкрементит `access_count`. Чем чаще обращение — тем медленнее забывание:
+Каждый `touch` увеличивает `access_count`. Больше обращений — медленнее забывание:
 
 ```
 strength = 1 + ln(access_count)
@@ -186,86 +119,93 @@ effective_rate = base_rate / strength
 relevance = max(floor, 1.0 − effective_rate × days_since_access)
 ```
 
-Карточка с 5 touches затухает в ~2.6× медленнее, чем с одним.
+Карточка с 5 обращениями распадается в ~2.6× медленнее, чем с одним.
 
 </details>
 
 <details>
-<summary><b>2. Domain-specific rates</b></summary>
+<summary><b>2. Скорость распада по типу</b></summary>
 
 | Тип | Rate | Период полураспада | Почему |
 |---|---|---|---|
 | `contact` | 0.005 | ~100 дней | Люди не устаревают быстро |
 | `crm` | 0.008 | ~62 дня | У сделок средний цикл |
-| `learning` | 0.010 | ~50 дней | Знание блекнет умеренно |
-| `project` | 0.012 | ~42 дня | Проекты имеют дедлайны |
-| `daily` | 0.020 | ~25 дней | Дневник быстро теряет актуальность |
-| default | 0.015 | ~33 дня | Fallback для прочего |
+| `project` | 0.012 | ~42 дня | У проектов есть дедлайны |
+| `daily` | 0.020 | ~25 дней | Ежедневные заметки теряют смысл быстро |
+| default | 0.015 | ~33 дня | Всё остальное |
 
 </details>
 
 <details>
-<summary><b>3. Graduated recall</b></summary>
+<summary><b>3. Ступенчатое возвращение</b></summary>
 
-Touch поднимает на один tier за раз: `archive → cold → warm → active`. `last_accessed` ставится в середину интервала — если карточку не трогать, она плавно уйдёт обратно вниз.
+`touch` повышает на один tier за раз: `archive → cold → warm → active`. `last_accessed` ставится в середину интервала — без повторного `touch` карточка сама сползает обратно.
 
 </details>
 
-## 📦 Что внутри
+## Расписание
+
+Распад + health ночью, дедуп + MOC по воскресеньям. Подойдёт любой планировщик; вот обычный cron:
+
+```cron
+0 3 * * *  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/engine.py decay . && uv run ~/dev/autograph/skills/autograph/scripts/graph.py health .
+0 4 * * 0  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/dedup.py . --apply && uv run ~/dev/autograph/skills/autograph/scripts/moc.py generate .
+```
+
+Цели: health ≥ 90, broken_links = 0, покрытие описаний ≥ 80%, устаревшие (>90д) < 20%.
+
+## Что внутри
 
 ```
 autograph/
-├── .claude-plugin/
-│   ├── plugin.json         # Манифест (Claude Code, OpenClaw)
-│   └── marketplace.json    # Marketplace entry
-├── commands/research.md    # Slash-команда /autograph:research
+├── .claude-plugin/         # plugin.json + marketplace.json (Claude Code, skills.sh)
+├── commands/research.md     # слэш-команда /autograph:research
+├── llms.txt                 # машиночитаемая сводка для агентов
 ├── skills/autograph/
-│   ├── SKILL.md            # Инструкции для модели
-│   ├── schema.example.json # Generic-шаблон
-│   ├── references/         # Bootstrap workflow, card templates, schema docs
-│   ├── scripts/            # 14 движковых скриптов (stdlib only)
-│   ├── tests/              # 220 self-contained тестов
-│   └── evals/evals.json    # Eval-кейсы для skill-creator
+│   ├── SKILL.md             # воркфлоу для модели (create/update, health, daily→cards)
+│   ├── schema.example.json  # стартовый шаблон — копируй и правь
+│   ├── references/          # bootstrap, шаблоны карточек, update-in-place, daily processor
+│   ├── scripts/             # 17 скриптов движка (только Python stdlib)
+│   └── tests/               # 256 автономных тестов
 └── LICENSE
 ```
 
-<details>
-<summary><b>Скрипты движка</b> — 14 штук</summary>
+**Требования:** Python 3.11+, [`uv`](https://github.com/astral-sh/uv), vault в стиле Obsidian (папка `.md` с YAML-фронтматтером). Опционально `OPENROUTER_API_KEY` для обогащения тегов/ссылок. Без `pip install` — только stdlib.
 
-| Script | Назначение |
-|---|---|
-| `common.py` | FM-парсер, walk, domain inference, decay-формула |
-| `discover.py` | Phase 1: скан vault, enum-кандидаты |
-| `generate_schema.py` | Phase 2A: discovery → draft schema |
-| `swarm_prepare.py` | Phase 2B: bin-pack vault в батчи для агентов |
-| `swarm_reduce.py` | Phase 2B: консолидация + валидация схемы |
-| `research.py` | Helper для `/research`: gate + manifests + reduce |
-| `enforce.py` | Phase 4: валидация + auto-fix по схеме |
-| `link_cleanup.py` | Phase 5: удаление фантомных wikilinks |
-| `enrich.py` | Phase 6/8: tags + catalog-based swarm-links через LLM |
-| `dedup.py` | Phase 7: merge + `.trash/` |
-| `graph.py` | Health score, repair, backlinks, orphans |
-| `moc.py` | Map-of-Content генерация |
-| `engine.py` | Decay, touch, creative recall, stats, init |
-| `daily.py` | Entity extraction из daily/memory файлов |
-
-</details>
-
-**Требования:** Python 3.11+, [`uv`](https://github.com/astral-sh/uv), Obsidian-vault (папка `.md`-файлов с YAML frontmatter). Опционально — `OPENROUTER_API_KEY` для enrich.py. `pip install` не нужен — stdlib only.
-
-**Тесты:**
 ```bash
-cd skills/autograph && uv run tests/test_autograph.py
+cd skills/autograph && uv run tests/test_autograph.py   # 256/256
 ```
 
-## 🔗 Откуда проект
+## FAQ
 
-Вырос из [`smixs/agent-second-brain`](https://github.com/smixs/agent-second-brain) — Telegram-бота "второй мозг", где голосовые расшифровки классифицировались и писались в Obsidian с ежевечерним daily-репортом. Decay-движок, vault-health scoring, graph-tools оказались частью, которая нужна всем агентам, а не только одному боту. `autograph` выделяет эти инструменты в общий слой памяти для любого рантайма.
+### Что такое autograph?
+autograph — слой памяти как код для Obsidian-vault, в которые пишут AI-агенты. Одна `schema.json` задаёт типы карточек, папки, статусы и скорость распада; движок раскладывает карточки, чинит wiki-ссылки, сливает дубли сущностей, применяет забывание по Эббингаузу и считает health. Только Python stdlib, 256 тестов, MIT.
+
+### Чем отличается от mem0, Letta, basic-memory?
+autograph хранит память как обычный Markdown в твоём Obsidian-vault, а не в хостинговой базе — без API, без лок-ина, файлы остаются человекочитаемым PKM. И добавляет типизацию схемы, дедуп сущностей, починку ссылок и распад памяти, которых у тех инструментов нет.
+
+### Работает вне Claude Code?
+Да. `npx skills add smixs/autograph` ставит его в Codex, Cursor, OpenClaw, Hermes и 70+ агентов через skills.sh. Скрипты движка запускаются и standalone из любого шелла.
+
+### Что происходит, когда факт меняется?
+autograph обновляет существующую карточку на месте: переписывает текущее значение (Compiled Truth), а старое уносит в append-only `## History` — вместо второй, конфликтующей карточки. Отслужившие карточки получают `status: superseded` и ссылку на замену.
+
+### Нужен ли embeddings-сервер?
+Нет. Поиск — это BM25 по сырому Markdown плюс реранк по графу ссылок, без вектор-базы. Плотный гибридный поиск — опционально, если захочешь.
+
+## Где используется
+
+- **[iva](https://github.com/smixs/iva)** — персональный always-on AI-агент. autograph — его долговременная память: транскрипт каждого дня перегоняется в типизированные карточки, дедуплицируется и распадается.
+- **[agent-second-brain](https://github.com/smixs/agent-second-brain)** — Telegram-бот «второй мозг», из которого autograph вырос.
+
+## Происхождение
+
+autograph вырос из [`agent-second-brain`](https://github.com/smixs/agent-second-brain) — Telegram-бота, который раскладывал мои голосовые расшифровки по Obsidian-vault с отчётом в 21:00. Движок распада, health-скоринг и графовые инструменты оказались той частью, которая нужна каждому агенту, а не только тому боту, — так они переехали в общий слой памяти для любого раннтайма.
 
 ---
 
 <div align="center">
 
-Made with care in Tashkent · [MIT License](./LICENSE) · [Issues](https://github.com/smixs/autograph/issues)
+Сделано в Ташкенте · [MIT](./LICENSE) · [Issues](https://github.com/smixs/autograph/issues)
 
 </div>

@@ -7,10 +7,10 @@
     {
       "name": "autograph",
       "source": ".",
-      "description": "Schema-as-code engine for any Obsidian vault: discover structure, enforce taxonomy, manage decay, repair links, generate MOCs. Ships with /autograph:research — an interactive bootstrap for empty or chaotic vaults via a swarm of exploration agents + AskUserQuestion rounds.",
-      "version": "0.1.0",
+      "description": "Schema-as-code memory engine for Obsidian vaults that AI agents write to: typed cards, entity dedup, link repair, update-in-place (supersede + History), Ebbinghaus decay, MOC generation, vault health score. Plain Markdown you own. Ships with /autograph:research — an interactive bootstrap for empty or chaotic vaults.",
+      "version": "0.2.0",
       "category": "productivity",
-      "tags": ["obsidian", "vault", "knowledge-graph", "pkm", "taxonomy"]
+      "tags": ["obsidian", "vault", "knowledge-graph", "pkm", "taxonomy", "claude-code", "agent-memory"]
     }
   ]
 }

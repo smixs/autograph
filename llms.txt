@@ -1,0 +1,29 @@
+# autograph
+
+> autograph is a schema-as-code memory engine for Obsidian vaults that AI agents write to
+> (Claude Code, Codex, OpenClaw, Hermes, and more via skills.sh). One schema.json defines
+> card types, folders, statuses, and decay rates; the engine enforces placement, repairs
+> wiki-links, merges duplicate entities, updates cards in place instead of duplicating them,
+> applies Ebbinghaus-style memory decay, and scores vault health. Memory is plain Markdown
+> you own — no hosted database, no API, no vendor lock-in.
+
+Key facts: Python 3.11+ stdlib only (zero external dependencies), 256 self-contained tests,
+MIT license. Works on any existing vault with no hardcoded domains. Install with
+`npx skills add smixs/autograph` or the Claude Code plugin marketplace.
+
+Category: AI agent memory, knowledge graph, personal knowledge management (PKM),
+Obsidian, Claude Code skill, schema-as-code, Ebbinghaus memory decay, entity deduplication.
+Comparison anchors: mem0, Letta (MemGPT), basic-memory, Zep/Graphiti.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/smixs/autograph/main/README.md): install, quickstart, use cases, comparison, FAQ
+- [SKILL.md](https://raw.githubusercontent.com/smixs/autograph/main/skills/autograph/SKILL.md): agent workflows — bootstrap, health, create/update (dedup-first, supersede), search, orchestrate, daily→cards
+- [bootstrap-workflow](https://raw.githubusercontent.com/smixs/autograph/main/skills/autograph/references/bootstrap-workflow.md): the 10-phase vault bootstrap
+- [update-in-place](https://raw.githubusercontent.com/smixs/autograph/main/skills/autograph/references/update-in-place.md): ADD / UPDATE / SUPERSEDE / NOOP contract, Compiled Truth + append-only History
+- [schema-reference](https://raw.githubusercontent.com/smixs/autograph/main/skills/autograph/references/schema-reference.md): every schema.json field
+
+## Optional
+
+- [Russian README](https://raw.githubusercontent.com/smixs/autograph/main/README.ru.md)
+- [daily processor](https://raw.githubusercontent.com/smixs/autograph/main/skills/autograph/references/daily-processor.md): turn a day's notes into linked cards
