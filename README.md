@@ -2,7 +2,7 @@
 
 # autograph
 
-<img src=".github/assets/banner.webp" alt="autograph — typed memory graph for Obsidian vaults" width="560">
+<img src=".github/assets/banner.webp" alt="autograph — typed memory graph for Obsidian vaults" width="100%">
 
 **Schema-as-code memory for AI agents that write to an Obsidian vault.**
 One `schema.json` keeps the vault typed, linked, deduplicated, and decaying — automatically.

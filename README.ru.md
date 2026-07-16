@@ -2,7 +2,7 @@
 
 # autograph
 
-<img src=".github/assets/banner.webp" alt="autograph — типизированный граф памяти для Obsidian" width="560">
+<img src=".github/assets/banner.webp" alt="autograph — типизированный граф памяти для Obsidian" width="100%">
 
 **Память как код для AI-агентов, пишущих в Obsidian-vault.**
 Одна `schema.json` держит vault типизированным, связанным, без дублей и с забыванием — сама.
