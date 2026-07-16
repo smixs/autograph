@@ -25,18 +25,14 @@ from common import (
     parse_frontmatter,
     write_frontmatter,
     collect_duplicate_groups,
+    get_conflict_fields,
+    card_recency_date as _card_date,
 )
-
-# Поля, где разные значения у одной сущности = противоречие (а не обогащение).
-CONFLICT_FIELDS = ["company", "role", "status", "handle", "platform", "phone", "email", "title"]
-
-
-def _card_date(fields: dict) -> str:
-    # Свежесть карточки: updated > created > last_accessed. Для выбора «актуальной».
-    return fields.get("updated") or fields.get("created") or fields.get("last_accessed") or ""
 
 
 def scan(vault_dir: Path, schema: dict):
+    # Поля-противоречия и same-entity группировка читаются из схемы (single source of truth).
+    conflict_fields = get_conflict_fields(schema)
     groups = collect_duplicate_groups(vault_dir, schema)
     candidates = []
     for paths in groups.values():
@@ -56,7 +52,7 @@ def scan(vault_dir: Path, schema: dict):
         if len(cards) < 2:
             continue
         conflicts = {}
-        for f in CONFLICT_FIELDS:
+        for f in conflict_fields:
             vals = {}
             for c in cards:
                 v = str(c["fields"].get(f, "")).strip()

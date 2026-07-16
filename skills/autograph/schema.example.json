@@ -63,6 +63,21 @@
     "bonus_fields": ["telegram", "email", "company", "role", "source", "deal_status", "responsible"]
   },
 
+  "conflict_fields": {
+    "_comment": "scalar facts where a NEW differing value supersedes the old (recency wins); the losing value is recorded to ## History. Used by dedup merge + supersede scan.",
+    "fields": ["company", "role", "status", "handle", "platform", "phone", "email", "title"]
+  },
+
+  "identity": {
+    "_comment": "same-entity detection for dedup/supersede grouping. Cards sharing a strong key (exact normalized match on match_fields) are grouped across different filenames. Name-only never groups (fuzzy off — a false merge is worse than a duplicate). Remove this block to disable and keep exact-stem grouping only.",
+    "match_fields": ["email", "telegram", "handle", "phone"],
+    "same_domain_only": true,
+    "same_type_only": true,
+    "fuzzy_name": false,
+    "ignore_values": ["", "n/a", "-", "none", "unknown"],
+    "max_shared": 8
+  },
+
   "entity_extraction": {
     "_comment": "settings for daily.py entity extraction",
     "noise_words": ["TODO", "FIX", "NEW", "UPDATED", "Phase", "Score", "Vault",
