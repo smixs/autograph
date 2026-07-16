@@ -17,7 +17,7 @@ One schema. One graph. Works on any vault.
 
 No hardcoded domains, types, or paths. The agent discovers structure from data, builds a schema, then enforces it. All scripts share `common.py`. Zero external dependencies (stdlib only, API calls via urllib).
 
-## Quick Reference: 5 Workflows
+## Quick Reference: 6 Workflows
 
 | Workflow | When to use | Entry point |
 |----------|-------------|-------------|
@@ -26,6 +26,7 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 | **CREATE / UPDATE** | New knowledge card, or new info about an existing one | `search.py` dedup → ADD/UPDATE/SUPERSEDE → link → touch |
 | **SEARCH & LINK** | Find info + strengthen connections | Hub → links → target; `graph.py orphans` → connect |
 | **ORCHESTRATE** | Automated multi-agent workflows (no API keys) | `orchestrate.py health\|bootstrap` |
+| **DAILY → CARDS** | Turn a day's raw notes into linked cards | `daily.py extract` → dedup-first process → link |
 
 ---
 
@@ -214,6 +215,21 @@ python3 scripts/orchestrate.py graph-prepare <vault-dir>
 For Phases 1-3: run the prep command, read the output JSON, do the analysis yourself (you ARE the LLM), write results back. Use Agent tool for parallel domain work in Phase 2.
 
 ---
+
+## Workflow 6: DAILY → CARDS (day's notes → linked cards)
+
+**When to use:** Turning a `daily/YYYY-MM-DD.md` note file into durable cards. Judgment-first — the scripts extract candidates; you classify, dedup, and link.
+
+**Full guide:** `references/daily-processor.md`
+
+### Summary (4 phases + idempotency)
+
+1. **CAPTURE:** `daily.py extract <daily-dir> <vault-dir> [date]` (candidates → `.graph/`) + `supersede.py <vault>` (conflict scan). Read schema `node_types`, list noteworthy items + the day's topics.
+2. **PROCESS:** per item, run the Workflow 3 Step 0 decision (ADD / UPDATE / SUPERSEDE / NOOP — `references/update-in-place.md`); resolve every `.graph/supersede-candidates.json` entry.
+3. **LINK:** apply the Workflow 3 linking protocol (hub + 2 siblings + touch) to each card.
+4. **SUMMARIZE (schema-gated):** only if the schema defines a summary type, write a daily-summary card with topics + a MOC down to today's cards and the raw file. No hardcoded DAG.
+
+**Idempotency:** append `<!-- autograph-processed: YYYY-MM-DDTHH:MM cards=N -->` to the end of the daily file; on re-run, skip content above the last marker. Never edit existing lines.
 
 ---
 
