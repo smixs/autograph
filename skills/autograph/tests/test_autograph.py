@@ -324,7 +324,8 @@ def main():
             load_schema, parse_frontmatter, walk_vault, infer_domain,
             infer_type, calc_relevance, calc_tier, days_since,
             extract_wikilinks, IGNORE_DIRS, write_frontmatter, format_field,
-            build_link_index, resolve_link_target, collect_duplicate_groups, is_hub_path
+            build_link_index, resolve_link_target, collect_duplicate_groups, is_hub_path,
+            get_conflict_fields, get_identity_config, card_recency_date, normalize_identity_value
         )
 
         # 1.1 schema loading
@@ -555,6 +556,71 @@ def main():
              f"got: {duplicate_groups}")
         test("is_hub_path detects nested _index", is_hub_path('foo/_index'))
         test("is_hub_path detects nested MEMORY", is_hub_path('agents/x/MEMORY'))
+
+        # 1.18 recency / conflict / identity helpers
+        test("card_recency_date prefers updated",
+             card_recency_date({'updated': '2026-06', 'created': '2026-01'}) == '2026-06')
+        test("card_recency_date falls back to created",
+             card_recency_date({'created': '2026-01', 'last_accessed': '2026-05'}) == '2026-01')
+        test("card_recency_date empty when none", card_recency_date({}) == '')
+        test("get_conflict_fields default has company",
+             'company' in get_conflict_fields({}))
+        test("get_conflict_fields reads schema",
+             get_conflict_fields({'conflict_fields': {'fields': ['x']}}) == ['x'])
+        ident_cfg = get_identity_config({'identity': {'max_shared': 3, '_comment': 'x'}})
+        test("get_identity_config fills defaults", ident_cfg['same_type_only'] is True)
+        test("get_identity_config override applied", ident_cfg['max_shared'] == 3)
+        test("get_identity_config strips _comment", '_comment' not in ident_cfg)
+        test("normalize_identity_value strips @ from handle",
+             normalize_identity_value('telegram', '@BobDev') == 'bobdev')
+        test("normalize_identity_value phone digits only",
+             normalize_identity_value('phone', '+1 (234) 567') == '1234567')
+
+        # 1.19 entity-identity grouping (opt-in via schema `identity`)
+        ident_schema = dict(schema)
+        ident_schema['identity'] = {
+            "match_fields": ["email"], "same_domain_only": True,
+            "same_type_only": True, "ignore_values": ["info@x.com"], "max_shared": 8
+        }
+        ev = tmp / 'ident-vault'
+        (ev / 'contacts').mkdir(parents=True, exist_ok=True)
+        (ev / 'contacts/jane-doe.md').write_text(
+            "---\ntype: contact\ndomain: crm\nemail: jane@x.com\n---\n# Jane Doe\n")
+        (ev / 'contacts/jane.md').write_text(
+            "---\ntype: contact\ndomain: crm\nemail: JANE@x.com\n---\n# Jane\n")
+        g = collect_duplicate_groups(ev, ident_schema)
+        grouped = [v for v in g.values() if len(v) == 2 and
+                   set(v) == {'contacts/jane-doe.md', 'contacts/jane.md'}]
+        test("entity-identity groups same email across filenames", len(grouped) == 1, f"got: {g}")
+        # backward-compat: no identity block → exact-stem only → no grouping here
+        test("no grouping without identity block",
+             collect_duplicate_groups(ev, schema) == {}, f"got: {collect_duplicate_groups(ev, schema)}")
+        # different type → not grouped
+        (ev / 'note-jane.md').write_text(
+            "---\ntype: note\ndomain: crm\nemail: jane@x.com\n---\n# note\n")
+        g2 = collect_duplicate_groups(ev, ident_schema)
+        note_grouped = any('note-jane.md' in v for v in g2.values())
+        test("entity-identity respects same_type_only", not note_grouped, f"got: {g2}")
+        # ignore_values → not grouped
+        (ev / 'contacts/x1.md').write_text(
+            "---\ntype: contact\ndomain: crm\nemail: info@x.com\n---\n# x1\n")
+        (ev / 'contacts/x2.md').write_text(
+            "---\ntype: contact\ndomain: crm\nemail: info@x.com\n---\n# x2\n")
+        g3 = collect_duplicate_groups(ev, ident_schema)
+        test("entity-identity skips ignore_values",
+             not any({'contacts/x1.md', 'contacts/x2.md'} <= set(v) for v in g3.values()),
+             f"got: {g3}")
+        # max_shared guard: 3 cards share a value but max_shared=2 → not grouped
+        maxv = tmp / 'maxshared-vault'
+        (maxv / 'c').mkdir(parents=True, exist_ok=True)
+        for n in ('a', 'b', 'c'):
+            (maxv / 'c' / f'{n}.md').write_text(
+                f"---\ntype: contact\ndomain: crm\nhandle: shared\n---\n# {n}\n")
+        max_schema = dict(schema)
+        max_schema['identity'] = {"match_fields": ["handle"], "max_shared": 2}
+        test("entity-identity skips over-max_shared value",
+             collect_duplicate_groups(maxv, max_schema) == {},
+             f"got: {collect_duplicate_groups(maxv, max_schema)}")
 
         # ═══════════════════════════════════════════════════════
         # 2. Script CLI tests (subprocess against temp vault)
@@ -1380,7 +1446,7 @@ def main():
 
         # 7.11 resolve_link strips anchor (graph.py)
         from graph import resolve_link, fix_broken_links, build_graph
-        from dedup import merge_content
+        from dedup import merge_content, append_history
         from daily import (
             build_vault_index as build_daily_index,
             extract_entities as extract_daily_entities,
@@ -1477,6 +1543,59 @@ def main():
         test("dedup merge appends unique body sections",
              '## Imported Section' in merged_body,
              f"got: {merged_body}")
+
+        # 7.14b recency-aware conflict merge → newer wins, old value to ## History
+        rc_dir = tmp / 'recency-vault'
+        rc_dir.mkdir(parents=True, exist_ok=True)
+        canon = rc_dir / 'canon.md'
+        newer = rc_dir / 'newer.md'
+        canon.write_text(
+            "---\ntype: contact\ncompany: ACME\ncreated: 2026-03-01\n---\n# Jane\n")
+        newer.write_text(
+            "---\ntype: contact\ncompany: Globex\nupdated: 2026-06-01\n---\n# Jane\n")
+        merge_content(canon, [newer], conflict_fields=['company'], today='2026-06-10')
+        rc_fm, rc_body, _ = parse_frontmatter(canon.read_text())
+        test("recency: newer conflict value wins", rc_fm.get('company') == 'Globex',
+             f"got: {rc_fm.get('company')}")
+        test("recency: winner bumps updated", rc_fm.get('updated') == '2026-06-10',
+             f"got: {rc_fm.get('updated')}")
+        test("recency: old value goes to ## History",
+             '## History' in rc_body and 'company: ACME' in rc_body, f"got: {rc_body}")
+        test("recency: History line format",
+             '- 2026-03→2026-06 · company: ACME' in rc_body,
+             f"got: {rc_body}")
+
+        # canonical newer / tie → canon kept, extra's losing value still recorded (no data loss)
+        canon2 = rc_dir / 'canon2.md'
+        older = rc_dir / 'older.md'
+        canon2.write_text(
+            "---\ntype: contact\ncompany: Globex\nupdated: 2026-06-01\n---\n# Jane\n")
+        older.write_text(
+            "---\ntype: contact\ncompany: ACME\ncreated: 2026-03-01\n---\n# Jane\n")
+        merge_content(canon2, [older], conflict_fields=['company'], today='2026-06-10')
+        c2_fm, c2_body, _ = parse_frontmatter(canon2.read_text())
+        test("recency: canonical newer is kept", c2_fm.get('company') == 'Globex',
+             f"got: {c2_fm.get('company')}")
+        test("recency: loser value not lost (to History)",
+             'company: ACME' in c2_body, f"got: {c2_body}")
+
+        # append_history preserves existing lines (append-only)
+        appended = append_history("# X\n\n## History\n- 2025-01→2025-02 · role: Old\n",
+                                  ["- 2026-03→2026-06 · company: ACME"])
+        test("append_history keeps existing History lines",
+             'role: Old' in appended and 'company: ACME' in appended, f"got: {appended}")
+
+        # non-conflict field still richness-based (regression)
+        canon3 = rc_dir / 'canon3.md'
+        rich = rc_dir / 'rich.md'
+        canon3.write_text("---\ntype: note\ndescription: short\n---\n# X\n")
+        rich.write_text(
+            "---\ntype: note\ndescription: a much much much longer description here\n---\n# X\n")
+        merge_content(canon3, [rich], conflict_fields=['company'])
+        c3_fm, _, _ = parse_frontmatter(canon3.read_text())
+        test("non-conflict field still richness-based",
+             c3_fm.get('description') == 'a much much much longer description here',
+             f"got: {c3_fm.get('description')}")
 
         # 7.15 daily extraction resolves typed linked entities
         daily_index = build_daily_index(vault_dir)
