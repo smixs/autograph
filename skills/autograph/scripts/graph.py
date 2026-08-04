@@ -34,9 +34,15 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
 
     link_index = build_link_index(vault_dir, files)
 
+    # raw_dirs: append-only transcripts — real nodes, but no description or
+    # incoming links expected. rollup_dirs: pipeline targets that may not exist yet.
+    raw_dirs = tuple(schema.get('raw_dirs', []))
+    rollup_dirs = tuple(schema.get('rollup_dirs', []))
+
     nodes = {}
     all_links = []      # (source, raw_target, resolved_target)
     broken_links = []   # (source, raw_target)
+    future_links = 0    # links to not-yet-created rollups
 
     for md in files:
         rp = rel_path(md, vault_dir)
@@ -65,6 +71,8 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
             if resolved:
                 outgoing.append(resolved)
                 all_links.append((rp_noext, target_clean, resolved))
+            elif rollup_dirs and target_clean.startswith(rollup_dirs):
+                future_links += 1
             else:
                 broken_links.append((rp_noext, target_clean))
 
@@ -72,6 +80,7 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
             'domain': domain,
             'type': card_type,
             'has_description': has_desc,
+            'is_raw': rp.startswith(raw_dirs) if raw_dirs else False,
             'outgoing': outgoing,
             'incoming': [],  # filled below
             'link_count': len(outgoing),
@@ -87,10 +96,12 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
     total_links = len(all_links)
     avg_links = total_links / max(total, 1)
 
-    orphans = [p for p, n in nodes.items() if not n['incoming'] and not is_hub_path(p)]
+    orphans = [p for p, n in nodes.items()
+               if not n['incoming'] and not is_hub_path(p) and not n['is_raw']]
     dead_ends = [p for p, n in nodes.items() if not n['outgoing'] and n['incoming']]
-    desc_count = sum(1 for n in nodes.values() if n['has_description'])
-    desc_ratio = desc_count / max(total, 1)
+    described = [n for n in nodes.values() if not n['is_raw']]
+    desc_count = sum(1 for n in described if n['has_description'])
+    desc_ratio = desc_count / max(len(described), 1)
 
     orphan_ratio = len(orphans) / max(total, 1)
     broken_ratio = len(broken_links) / max(total, 1)
@@ -130,6 +141,7 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
             'orphans': len(orphans),
             'dead_ends': len(dead_ends),
             'broken_links': len(broken_links),
+            'future_links': future_links,
             'desc_coverage': round(desc_ratio * 100, 1),
             'nonstandard_domains': nonstandard_count,
             'health_score': health,
@@ -354,6 +366,7 @@ def main():
         print(f"Orphan files:     {stats['orphans']}")
         print(f"Dead-ends:        {stats['dead_ends']}")
         print(f"Broken links:     {stats['broken_links']}")
+        print(f"Future rollup links:  {stats['future_links']}")
         print(f"Desc coverage:    {stats['desc_coverage']}%")
         ns_count = stats.get('nonstandard_domains', 0)
         if ns_count > 0:
