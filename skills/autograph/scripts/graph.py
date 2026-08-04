@@ -24,7 +24,8 @@ from common import (
     build_link_index, normalize_link_target, resolve_link_target, is_hub_path
 )
 
-EMBED_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.svg', '.pdf', '.mp3', '.mp4', '.webp'}
+EMBED_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.svg', '.pdf', '.mp3', '.mp4', '.webp',
+              '.ogg', '.opus', '.m4a', '.wav'}
 
 
 def build_graph(vault_dir: Path, schema: dict) -> dict:
