@@ -9,6 +9,7 @@ Usage:
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from datetime import date
@@ -20,6 +21,97 @@ from common import (
     get_type_aliases, get_field_fixes, get_node_types, get_status_defaults,
     collect_duplicate_groups, collapse_repeated_description, cap_description, DESC_CAP
 )
+
+# ─── CARD BODY CLEANUP ─────────────────────────────────────
+# The nightly LLM pass sometimes appends a fresh section instead of updating the
+# existing one, leaving cards with layered '## Related' blocks and bare dated
+# headings. Cards only — daily/ and the rollups are append-only by design.
+RELATED_HEADING = '## Related'
+SECTION_BREAK = re.compile(r'^#{1,2} ')
+DATED_HEADING = re.compile(r'^## .*\d{4}-\d{2}-\d{2}\s*$')
+BULLET_TARGET = re.compile(r'\[\[([^\]|#]+)')
+
+
+def _sections(lines: list[str]) -> list[tuple[int, int]]:
+    """Heading spans as (heading_index, end_index_exclusive), split on ^# / ^##."""
+    starts = [i for i, l in enumerate(lines) if SECTION_BREAK.match(l)]
+    return [(s, starts[j + 1] if j + 1 < len(starts) else len(lines))
+            for j, s in enumerate(starts)]
+
+
+def _bullet_key(line: str) -> str:
+    """Dedup key for a Related bullet: the wikilink target, alias ignored."""
+    m = BULLET_TARGET.search(line)
+    return m.group(1).strip() if m else line.strip()
+
+
+def _dedup_bullets(section: list[str], seen: set) -> tuple[list[str], bool]:
+    """Drop bullets whose target is already seen; first occurrence wins."""
+    out, dropped = [], False
+    for l in section:
+        if l.startswith('- '):
+            key = _bullet_key(l)
+            if key in seen:
+                dropped = True
+                continue
+            seen.add(key)
+        out.append(l)
+    return out, dropped
+
+
+def merge_related(lines: list[str]) -> tuple[list[str], bool]:
+    """Fold repeated '## Related' sections into the first one, dedup by target."""
+    spans = [(s, e) for s, e in _sections(lines) if lines[s].strip() == RELATED_HEADING]
+    if not spans:
+        return lines, False
+
+    first_s, first_e = spans[0]
+    seen = set()
+    section, deduped = _dedup_bullets(lines[first_s + 1:first_e], seen)
+    extra, drop = [], []
+    for s, e in spans[1:]:
+        dupe = lines[s + 1:e]
+        # A duplicate section holding prose is not ours to throw away.
+        if any(l.strip() and not l.startswith('- ') for l in dupe):
+            continue
+        for l in dupe:
+            if l.startswith('- ') and _bullet_key(l) not in seen:
+                seen.add(_bullet_key(l))
+                extra.append(l)
+        drop.append((s, e))
+    if not deduped and not drop:
+        return lines, False
+
+    last_bullet = max((i for i, l in enumerate(section) if l.startswith('- ')), default=-1)
+    section = section[:last_bullet + 1] + extra + section[last_bullet + 1:]
+    out = lines[:first_s + 1] + section + lines[first_e:]
+    shift = len(out) - len(lines)  # every dropped span sits after the first section
+    for s, e in reversed(drop):
+        del out[s + shift:e + shift]
+    return out, True
+
+
+def drop_empty_dated_headings(lines: list[str]) -> tuple[list[str], int]:
+    """Remove '## <text> YYYY-MM-DD' headings whose section holds no content."""
+    removed = 0
+    for s, e in reversed(_sections(lines)):
+        if DATED_HEADING.match(lines[s]) and not any(l.strip() for l in lines[s + 1:e]):
+            del lines[s:e]
+            removed += 1
+    return lines, removed
+
+
+def clean_card_body(body: str) -> tuple[str, dict]:
+    """Undo nightly append artifacts in a card body. Returns (body, fix_counts)."""
+    lines = body.split('\n')
+    fixes = {}
+    lines, merged = merge_related(lines)
+    if merged:
+        fixes['related_merged'] = 1
+    lines, removed = drop_empty_dated_headings(lines)
+    if removed:
+        fixes['empty_headers_removed'] = removed
+    return '\n'.join(lines), fixes
 
 
 def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
@@ -149,6 +241,15 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
                 fields[sf] = default
                 changed = True
                 stats['fixes'][f'{sf}_add'] += 1
+
+        # --- BODY (cards only) ---
+        if rp.startswith('cards/'):
+            new_body, body_fixes = clean_card_body(body)
+            if body_fixes:
+                body = new_body
+                changed = True
+                for k, v in body_fixes.items():
+                    stats['fixes'][k] += v
 
         # --- WRITE ---
         if changed and apply:
