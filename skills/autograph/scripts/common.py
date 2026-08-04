@@ -319,6 +319,41 @@ def write_frontmatter(fields: dict, original_lines: list[str]) -> str:
     return '\n'.join(out)
 
 
+DESC_CAP = 500  # descriptions are one-line summaries; anything longer is derived garbage
+
+
+def collapse_repeated_description(desc: str) -> str:
+    """Collapse a description made of the same text repeated N times.
+
+    A historic write_frontmatter bug kept the old folded (>-) continuation line
+    whenever it contained a ':', doubling the description on every rewrite
+    (2^N growth, .md files up to GBs). The writer is fixed; this repairs
+    already-bloated values. Halving first keeps it O(n) even on huge strings;
+    the period check then catches odd repeat counts. Units shorter than
+    20 chars are left alone so legitimate short repetitions survive.
+    """
+    s = desc.strip()
+    while len(s) > 40:
+        half = len(s) // 2
+        first, second = s[:half].strip(), s[half:].strip()
+        if first and first == second:
+            s = first
+        else:
+            break
+    t = s + ' '
+    p = (t + t).find(t, 1)
+    if 20 < p < len(t) and len(t) % p == 0:
+        s = t[:p].strip()
+    return s
+
+
+def cap_description(desc: str) -> str:
+    """Hard cap for descriptions that stayed long after collapsing."""
+    if len(desc) <= DESC_CAP:
+        return desc
+    return desc[:DESC_CAP].rsplit(' ', 1)[0] + '…'
+
+
 YAML_SPECIAL = re.compile(r'[:#\[\]{}"\',|>!&*?]')
 
 def format_field(key: str, val) -> str:

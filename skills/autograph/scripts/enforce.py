@@ -18,7 +18,7 @@ from common import (
     load_schema, parse_frontmatter, write_frontmatter, format_field,
     walk_vault, rel_path, infer_domain, infer_type, IGNORE_DIRS,
     get_type_aliases, get_field_fixes, get_node_types, get_status_defaults,
-    collect_duplicate_groups
+    collect_duplicate_groups, collapse_repeated_description, cap_description, DESC_CAP
 )
 
 
@@ -126,14 +126,16 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
             else:
                 issues.append('missing description')
         elif isinstance(desc, str) and len(desc) > 20:
-            # Detect duplicated description (processor bug: same text repeated)
-            half = len(desc) // 2
-            first_half = desc[:half].strip()
-            second_half = desc[half:].strip()
-            if first_half and first_half == second_half:
-                fields['description'] = first_half
+            collapsed = collapse_repeated_description(desc)
+            if len(collapsed) < len(desc.strip()):
+                fields['description'] = collapsed
                 changed = True
                 stats['fixes']['desc_dedup'] += 1
+            # Hard cap — even a non-periodic bloated description must not survive.
+            if len(fields['description']) > DESC_CAP:
+                fields['description'] = cap_description(fields['description'])
+                changed = True
+                stats['fixes']['desc_truncated'] += 1
 
         # --- TAGS ---
         tags = fields.get('tags', '')
