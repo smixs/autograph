@@ -2,6 +2,8 @@
   "_comment": "Example schema — generate yours with: discover.py <vault> → review → save as schema.json",
   "_comment_description_max_chars": "Optional search-snippet limit. Remove description_max_chars to preserve valid long descriptions.",
   "description_max_chars": 500,
+  "_comment_raw_dirs": "Optional append-only source folders. Files remain graph nodes but do not lower durable-card health metrics.",
+  "raw_dirs": ["daily/"],
 
   "node_types": {
     "note": {
