@@ -757,12 +757,23 @@ def main():
         )
         raw_schema = json.loads(json.dumps(schema))
         raw_schema['raw_dirs'] = ['daily/']
+        (raw_vault / 'schema.json').write_text(
+            json.dumps(raw_schema), encoding="utf-8")
         raw_graph = build_graph_for_audio(raw_vault, raw_schema)
         raw_stats = raw_graph['stats']
-        test("graph reports card and raw file counts",
+        auto_code, _, auto_err = run([
+            py, str(SCRIPTS_DIR / 'graph.py'), 'health', str(raw_vault)
+        ])
+        autodiscovered_graph = json.loads(
+            (raw_vault / '.graph' / 'vault-graph.json').read_text(encoding="utf-8")
+        )
+        test("graph auto-discovers vault schema for raw file counts",
              raw_stats['total_files'] == 2 and raw_stats['card_files'] == 1 and
-             raw_stats['raw_files'] == 1,
-             f"got: {raw_stats}")
+             raw_stats['raw_files'] == 1 and auto_code == 0 and
+             autodiscovered_graph['stats']['card_files'] == 1 and
+             autodiscovered_graph['stats']['raw_files'] == 1,
+             f"direct={raw_stats}, auto={autodiscovered_graph['stats']}, "
+             f"err={auto_err[:300]!r}")
         test("graph retains and marks raw nodes",
              raw_graph['nodes']['daily/transcript']['is_raw'] is True and
              raw_graph['nodes']['cards/card']['is_raw'] is False)

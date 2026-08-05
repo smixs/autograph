@@ -341,11 +341,15 @@ def find_backlinks(graph: dict, target: str, vault_dir: Path = None) -> tuple[li
 
 
 # ─── CLI ───────────────────────────────────────────────────
-def find_schema(args: list) -> Path | None:
-    """Find schema.json in args or default location."""
+def find_schema(args: list, vault_dir: Path | None = None) -> Path | None:
+    """Find explicit, vault-local, then packaged schema.json."""
     for a in args:
         if a.endswith('.json') and Path(a).exists():
             return Path(a)
+    if vault_dir is not None:
+        vault_schema = Path(vault_dir) / 'schema.json'
+        if vault_schema.exists():
+            return vault_schema
     default = Path(__file__).parent.parent / 'schema.json'
     if default.exists():
         return default
@@ -365,7 +369,7 @@ def main():
         print(f"Error: vault directory required", file=sys.stderr)
         sys.exit(1)
 
-    schema_path = find_schema(args)
+    schema_path = find_schema(args, vault_dir)
     schema = load_schema(schema_path) if schema_path else {}
     try:
         get_raw_dirs(schema)

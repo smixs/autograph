@@ -21,5 +21,6 @@
 - Added optional, strictly validated `raw_dirs` with normalized directory boundaries.
 - Raw sources remain graph nodes and valid wikilink targets, while durable-card health excludes their missing descriptions, orphan status, outgoing-link density, broken outgoing links, and domain consistency.
 - Raw-origin broken links remain observable in separate informational JSON/report fields.
+- `graph.py` discovers `<vault>/schema.json` when no explicit schema argument is supplied; an explicit existing JSON path still wins.
 - Directory-wide future-target exemptions were deliberately excluded because a prefix cannot prove that a missing dated target is valid.
 - CodeRabbit CLI review was skipped after the coordinator confirmed the organization-wide 45-minute rate limit; strict local checks are recorded on the PR.
