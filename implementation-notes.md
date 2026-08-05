@@ -15,3 +15,11 @@
 - `enforce.py` skips files over 10 MiB and excludes them from duplicate inspection so it cannot re-read them through a secondary path.
 - Follow-up review applies caps down to one character, reports invalid cap schemas cleanly at the CLI boundary, and keeps indented YAML block delimiters inside frontmatter.
 - CodeRabbit CLI 0.7.1 was attempted after local validation but returned the organization rate limit with a 45-minute wait; the coordinator approved recording the skip and proceeding with strict local checks.
+
+## Raw-source health
+
+- Added optional, strictly validated `raw_dirs` with normalized directory boundaries.
+- Raw sources remain graph nodes and valid wikilink targets, while durable-card health excludes their missing descriptions, orphan status, outgoing-link density, broken outgoing links, and domain consistency.
+- Raw-origin broken links remain observable in separate informational JSON/report fields.
+- Directory-wide future-target exemptions were deliberately excluded because a prefix cannot prove that a missing dated target is valid.
+- CodeRabbit CLI review was skipped after the coordinator confirmed the organization-wide 45-minute rate limit; strict local checks are recorded on the PR.

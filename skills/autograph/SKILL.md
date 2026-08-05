@@ -86,6 +86,10 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 | Description coverage | ≥80% | <70%: add descriptions |
 | Stale cards (>90d) | <20% | >30%: `engine.py creative` to resurface |
 
+When `schema.raw_dirs` is configured, raw files remain navigable nodes but are
+excluded from these durable-card health thresholds. Their unresolved outgoing
+links are reported separately as informational `raw_broken_links`.
+
 ### Commands
 
 ```bash

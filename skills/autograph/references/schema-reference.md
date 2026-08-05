@@ -7,6 +7,7 @@ Full documentation for `schema.json` — generated per vault, never shipped with
 ```json
 {
   "description_max_chars": 500,
+  "raw_dirs": ["daily/", "transcripts/"],
   "node_types": { ... },
   "type_aliases": { ... },
   "field_fixes": { ... },
@@ -37,6 +38,28 @@ Example:
 ```json
 "description_max_chars": 500
 ```
+
+## raw_dirs
+
+Optional array of relative POSIX directory paths containing append-only source
+material such as transcripts. Entries are validated strictly: absolute paths,
+backslashes, `.`/`..`, empty segments, duplicates, and non-string values are
+rejected. A trailing slash is normalized, so `daily/` never matches
+`daily-backup/`.
+
+Raw files remain full graph nodes and valid wikilink targets. Their incoming and
+outgoing resolved links remain available to backlinks and navigation. They are
+excluded from durable-card health denominators: description coverage, orphans,
+dead ends, average card links, domain consistency, and broken-link penalties.
+Unresolved links originating in raw files remain visible as informational
+`raw_broken_links` and `raw_broken_link_list` fields.
+
+```json
+"raw_dirs": ["daily/", "imports/transcripts/"]
+```
+
+This setting does not classify missing links as future rollups. An unresolved
+target from a durable card remains broken.
 
 ## node_types
 
