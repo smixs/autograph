@@ -815,6 +815,26 @@ def main():
              capped_after.get('description', '').endswith('…'),
              f"code={code}, desc={capped_after.get('description')!r}, err={err[:200]!r}")
 
+        tiny_schema_data = json.loads(json.dumps(SCHEMA))
+        tiny_schema_data['description_max_chars'] = 10
+        tiny_schema_path = tmp / 'schema-tiny-description-cap.json'
+        tiny_schema_path.write_text(json.dumps(tiny_schema_data), encoding="utf-8")
+        tiny_card_vault = tmp / 'tiny-description-cap-vault'
+        tiny_card_vault.mkdir(parents=True, exist_ok=True)
+        tiny_card = tiny_card_vault / 'short.md'
+        tiny_card.write_text(
+            "---\ntype: note\nstatus: active\ntags: [short]\n"
+            "description: Fifteen letters\n---\n# Short\n",
+            encoding="utf-8",
+        )
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(tiny_card_vault), str(tiny_schema_path), '--apply'])
+        tiny_after = parse_frontmatter(tiny_card.read_text(encoding="utf-8"))[0]
+        test("enforce applies configured caps below dedup threshold",
+             code == 0 and len(tiny_after.get('description', '')) <= 10 and
+             tiny_after.get('description', '').endswith('…'),
+             f"code={code}, desc={tiny_after.get('description')!r}, err={err[:200]!r}")
+
         # enforce never reads giant cards whole. cleanup.py owns that repair.
         oversize_vault = tmp / 'oversize-vault'
         oversize_vault.mkdir(parents=True, exist_ok=True)
@@ -866,6 +886,19 @@ def main():
         test("cleanup atomic replace preserves mode and removes temp",
              (cleanup_card.stat().st_mode & 0o777) == 0o640 and
              not list(cleanup_vault.glob('*.tmp')))
+
+        nested_delimiter = cleanup_vault / 'nested-delimiter.md'
+        nested_delimiter.write_bytes(
+            b'---\ndescription: >-\n  ' +
+            ((cleanup_unit + ' ') * 2).encode('utf-8') +
+            b'\nnotes: |-\n  ---\n  keep this block\n---\n# Body\n'
+        )
+        nested_result = clean_file(nested_delimiter, apply=True)
+        nested_bytes = nested_delimiter.read_bytes()
+        test("cleanup ignores indented delimiters in another frontmatter field",
+             nested_result is not None and nested_result['status'] == 'cleaned' and
+             b'notes: |-\n  ---\n  keep this block\n---\n# Body\n' in nested_bytes,
+             f"got: {nested_result!r}, bytes={nested_bytes!r}")
 
         giant_periodic = cleanup_vault / 'giant-periodic.md'
         giant_periodic.write_bytes(

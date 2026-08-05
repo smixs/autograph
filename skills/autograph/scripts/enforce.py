@@ -137,12 +137,13 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
                 stats['fixes']['desc_inferred'] += 1
             else:
                 issues.append('missing description')
-        elif isinstance(desc, str) and len(desc) > 20:
-            collapsed = collapse_repeated_description(desc)
-            if len(collapsed) < len(desc.strip()):
-                fields['description'] = collapsed
-                changed = True
-                stats['fixes']['desc_dedup'] += 1
+        elif isinstance(desc, str):
+            if len(desc) > 20:
+                collapsed = collapse_repeated_description(desc)
+                if len(collapsed) < len(desc.strip()):
+                    fields['description'] = collapsed
+                    changed = True
+                    stats['fixes']['desc_dedup'] += 1
             capped = cap_description(fields['description'], description_max_chars)
             if capped != fields['description']:
                 fields['description'] = capped

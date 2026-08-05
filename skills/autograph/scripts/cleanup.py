@@ -117,7 +117,7 @@ def clean_file(md: Path, apply: bool, max_chars: int | None = None) -> dict | No
     with md.open('rb') as handle:
         stream = LineStream(handle)
         first = stream.next_line()
-        if first is None or first[1] or first[0].strip() != b'---':
+        if first is None or first[1] or first[0].rstrip(b'\r') != b'---':
             return None
 
         output_lines = []
@@ -182,11 +182,11 @@ def clean_file(md: Path, apply: bool, max_chars: int | None = None) -> dict | No
                 in_description = False
                 description_lines, description_sample = [], None
 
-            if stripped == '---':
+            if not indented and line.rstrip('\r') == '---':
                 closed = True
                 break
 
-            if stripped.startswith('description:'):
+            if not indented and stripped.startswith('description:'):
                 value = stripped.partition(':')[2].strip()
                 description_header = line
                 if truncated:

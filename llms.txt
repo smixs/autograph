@@ -7,7 +7,7 @@
 > applies Ebbinghaus-style memory decay, and scores vault health. Memory is plain Markdown
 > you own — no hosted database, no API, no vendor lock-in.
 
-Key facts: Python 3.11+ stdlib only (zero external dependencies), 280 self-contained tests,
+Key facts: Python 3.11+ stdlib only (zero external dependencies), 282 self-contained tests,
 MIT license. Works on any existing vault with no hardcoded domains. Install with
 `npx skills add smixs/autograph` or the Claude Code plugin marketplace.
 
