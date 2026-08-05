@@ -135,6 +135,21 @@ def get_richness_fields(schema: dict) -> list:
     return cfg.get('bonus_fields', [])
 
 
+def get_description_max_chars(schema: dict) -> int | None:
+    """Return the optional schema-owned description limit.
+
+    Missing means no truncation. Booleans are rejected explicitly because
+    ``bool`` is an ``int`` subclass in Python and accepting ``true`` as a
+    one-character limit would destroy descriptions.
+    """
+    value = schema.get('description_max_chars')
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError('description_max_chars must be a positive integer')
+    return value
+
+
 def get_conflict_fields(schema: dict) -> list:
     """Scalar fields where differing values = temporal conflict (recency wins)."""
     cfg = schema.get('conflict_fields', {}) or {}
@@ -317,6 +332,44 @@ def write_frontmatter(fields: dict, original_lines: list[str]) -> str:
             out.append(format_field(key, val))
 
     return '\n'.join(out)
+
+
+def collapse_repeated_description(desc: str) -> str:
+    """Collapse a description made of the same substantial text N times.
+
+    The old frontmatter writer could retain a folded continuation line while
+    writing its parsed value, doubling descriptions on every rewrite. Halving
+    repairs the common 2^N case, then a linear periodicity check catches odd
+    repeat counts. Units of 20 characters or less are preserved because short
+    repetition can be legitimate prose.
+    """
+    value = desc.strip()
+    while len(value) > 40:
+        half = len(value) // 2
+        first = value[:half].strip()
+        second = value[half:].strip()
+        if first and first == second:
+            value = first
+        else:
+            break
+
+    probe = value + ' '
+    period = (probe + probe).find(probe, 1)
+    if 20 < period < len(probe) and len(probe) % period == 0:
+        value = probe[:period].strip()
+    return value
+
+
+def cap_description(desc: str, max_chars: int | None) -> str:
+    """Truncate a description only when the schema provides a limit."""
+    if max_chars is None or len(desc) <= max_chars:
+        return desc
+    if max_chars == 1:
+        return '…'
+    head = desc[:max_chars - 1].rstrip()
+    if ' ' in head:
+        head = head.rsplit(' ', 1)[0].rstrip()
+    return head + '…'
 
 
 YAML_SPECIAL = re.compile(r'[:#\[\]{}"\',|>!&*?]')

@@ -325,7 +325,8 @@ def main():
             infer_type, calc_relevance, calc_tier, days_since,
             extract_wikilinks, IGNORE_DIRS, write_frontmatter, format_field,
             build_link_index, resolve_link_target, collect_duplicate_groups, is_hub_path,
-            get_conflict_fields, get_identity_config, card_recency_date, normalize_identity_value
+            get_conflict_fields, get_identity_config, card_recency_date, normalize_identity_value,
+            collapse_repeated_description, cap_description, get_description_max_chars,
         )
 
         # 1.1 schema loading
@@ -502,6 +503,29 @@ def main():
         test("block-list rewrite: list intact",
              fm_b_rt.get('tags') == ['project', 'index', 'extra'],
              f"got: {fm_b_rt.get('tags')!r}")
+
+        repeated_unit = 'A substantial description with enough unique meaning.'
+        test("description collapse repairs even repeats",
+             collapse_repeated_description((repeated_unit + ' ') * 4) == repeated_unit)
+        test("description collapse repairs odd repeats",
+             collapse_repeated_description((repeated_unit + ' ') * 3) == repeated_unit)
+        test("description collapse preserves short repetition",
+             collapse_repeated_description('echo echo echo') == 'echo echo echo')
+        long_description = ' '.join(f'word-{index:03d}' for index in range(100))
+        test("description cap disabled by default",
+             cap_description(long_description, None) == long_description)
+        capped_description = cap_description(long_description, 80)
+        test("description cap includes ellipsis within limit",
+             len(capped_description) <= 80 and capped_description.endswith('…'),
+             f"got length={len(capped_description)}")
+        test("description cap reads positive schema integer",
+             get_description_max_chars({'description_max_chars': 500}) == 500)
+        invalid_description_cap = False
+        try:
+            get_description_max_chars({'description_max_chars': True})
+        except ValueError:
+            invalid_description_cap = True
+        test("description cap rejects boolean schema value", invalid_description_cap)
 
         # 1.16 deterministic link resolver
         resolver_vault = tmp / 'resolver-vault'
@@ -757,6 +781,185 @@ def main():
         test("enforce remaps superseded when NOT in enum",
              'status: superseded' not in remapped and 'status: active' in remapped,
              remapped[:200])
+
+        # A schema cap is opt-in. Ordinary long descriptions survive when it
+        # is absent, while a configured cap is applied deterministically.
+        long_card_vault = tmp / 'long-description-vault'
+        long_card_vault.mkdir(parents=True, exist_ok=True)
+        long_card = long_card_vault / 'long.md'
+        long_card.write_text(
+            "---\ntype: note\nstatus: active\ntags: [long]\n"
+            f"description: >-\n  {long_description}\n---\n# Long\n",
+            encoding="utf-8",
+        )
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(long_card_vault), str(schema_path), '--apply'])
+        long_after = parse_frontmatter(long_card.read_text(encoding="utf-8"))[0]
+        test("enforce preserves long description without schema cap",
+             code == 0 and long_after.get('description') == long_description,
+             f"code={code}, desc={long_after.get('description')!r}, err={err[:200]!r}")
+
+        capped_schema_data = json.loads(json.dumps(SCHEMA))
+        capped_schema_data['description_max_chars'] = 120
+        capped_schema_path = tmp / 'schema-description-cap.json'
+        capped_schema_path.write_text(json.dumps(capped_schema_data), encoding="utf-8")
+        capped_card_vault = tmp / 'capped-description-vault'
+        capped_card_vault.mkdir(parents=True, exist_ok=True)
+        capped_card = capped_card_vault / 'long.md'
+        capped_card.write_text(long_card.read_text(encoding="utf-8"), encoding="utf-8")
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(capped_card_vault), str(capped_schema_path), '--apply'])
+        capped_after = parse_frontmatter(capped_card.read_text(encoding="utf-8"))[0]
+        test("enforce applies configured description cap",
+             code == 0 and len(capped_after.get('description', '')) <= 120 and
+             capped_after.get('description', '').endswith('…'),
+             f"code={code}, desc={capped_after.get('description')!r}, err={err[:200]!r}")
+
+        tiny_schema_data = json.loads(json.dumps(SCHEMA))
+        tiny_schema_data['description_max_chars'] = 10
+        tiny_schema_path = tmp / 'schema-tiny-description-cap.json'
+        tiny_schema_path.write_text(json.dumps(tiny_schema_data), encoding="utf-8")
+        tiny_card_vault = tmp / 'tiny-description-cap-vault'
+        tiny_card_vault.mkdir(parents=True, exist_ok=True)
+        tiny_card = tiny_card_vault / 'short.md'
+        tiny_card.write_text(
+            "---\ntype: note\nstatus: active\ntags: [short]\n"
+            "description: Fifteen letters\n---\n# Short\n",
+            encoding="utf-8",
+        )
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(tiny_card_vault), str(tiny_schema_path), '--apply'])
+        tiny_after = parse_frontmatter(tiny_card.read_text(encoding="utf-8"))[0]
+        test("enforce applies configured caps below dedup threshold",
+             code == 0 and len(tiny_after.get('description', '')) <= 10 and
+             tiny_after.get('description', '').endswith('…'),
+             f"code={code}, desc={tiny_after.get('description')!r}, err={err[:200]!r}")
+
+        one_char_schema_data = json.loads(json.dumps(SCHEMA))
+        one_char_schema_data['description_max_chars'] = 1
+        one_char_schema_path = tmp / 'schema-one-char-description-cap.json'
+        one_char_schema_path.write_text(json.dumps(one_char_schema_data), encoding="utf-8")
+        one_char_card_vault = tmp / 'one-char-description-cap-vault'
+        one_char_card_vault.mkdir(parents=True, exist_ok=True)
+        one_char_card = one_char_card_vault / 'short.md'
+        one_char_card.write_text(
+            "---\ntype: note\nstatus: active\ntags: [short]\n"
+            "description: Fifteen letters\n---\n# Short\n",
+            encoding="utf-8",
+        )
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(one_char_card_vault), str(one_char_schema_path), '--apply'])
+        one_char_after = parse_frontmatter(one_char_card.read_text(encoding="utf-8"))[0]
+        test("enforce applies one-character description cap",
+             code == 0 and one_char_after.get('description') == '…',
+             f"code={code}, desc={one_char_after.get('description')!r}, err={err[:200]!r}")
+
+        invalid_cap_schema_data = json.loads(json.dumps(SCHEMA))
+        invalid_cap_schema_data['description_max_chars'] = True
+        invalid_cap_schema_path = tmp / 'schema-invalid-description-cap.json'
+        invalid_cap_schema_path.write_text(json.dumps(invalid_cap_schema_data), encoding="utf-8")
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(one_char_card_vault), str(invalid_cap_schema_path)])
+        test("enforce CLI reports invalid description cap without traceback",
+             code == 2 and 'description_max_chars' in err and 'Traceback' not in err,
+             f"code={code}, out={out[:200]!r}, err={err[:300]!r}")
+
+        # enforce never reads giant cards whole. cleanup.py owns that repair.
+        oversize_vault = tmp / 'oversize-vault'
+        oversize_vault.mkdir(parents=True, exist_ok=True)
+        oversize_card = oversize_vault / 'giant-card.md'
+        with oversize_card.open('wb') as handle:
+            handle.seek(10 * 1024 * 1024)
+            handle.write(b'\0')
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(oversize_vault), str(schema_path)])
+        oversize_report = json.loads(
+            (oversize_vault / '.graph' / 'enforce-report.json').read_text()
+        )
+        test("enforce skips oversized file with warning",
+             code == 0 and 'giant-card.md' in out and 'WARNING' in out,
+             f"code={code}, out={out[:300]!r}, err={err[:300]!r}")
+        test("enforce report counts oversized skip",
+             oversize_report.get('skipped_oversize') == 1,
+             f"got: {oversize_report!r}")
+
+        # cleanup dry-run is non-mutating; apply is atomic, mode-preserving,
+        # and copies every body byte exactly.
+        from cleanup import clean_file
+        cleanup_vault = tmp / 'description-cleanup-vault'
+        cleanup_vault.mkdir(parents=True, exist_ok=True)
+        cleanup_card = cleanup_vault / 'bloated.md'
+        cleanup_body = b'# Body\r\nBinary-safe tail: \x00\xff\n'
+        cleanup_unit = 'A substantial description with enough unique meaning.'
+        cleanup_card.write_bytes(
+            b'---\ndescription: >-\n  ' +
+            ((cleanup_unit + ' ') * 5).encode('utf-8') +
+            b'\n---\n' + cleanup_body
+        )
+        cleanup_card.chmod(0o640)
+        cleanup_before = cleanup_card.read_bytes()
+        cleanup_dry = clean_file(cleanup_card, apply=False)
+        test("cleanup dry-run reports repair without mutation",
+             cleanup_dry is not None and cleanup_dry['status'] == 'cleaned' and
+             cleanup_card.read_bytes() == cleanup_before,
+             f"got: {cleanup_dry!r}")
+        cleanup_applied = clean_file(cleanup_card, apply=True)
+        cleanup_bytes = cleanup_card.read_bytes()
+        cleanup_fm = parse_frontmatter(cleanup_bytes.decode('utf-8', errors='replace'))[0]
+        test("cleanup collapses repeated description",
+             cleanup_applied is not None and cleanup_fm.get('description') == cleanup_unit,
+             f"got: {cleanup_applied!r}, fm={cleanup_fm!r}")
+        test("cleanup preserves body bytes",
+             cleanup_bytes.endswith(b'---\n' + cleanup_body),
+             f"tail={cleanup_bytes[-len(cleanup_body)-8:]!r}")
+        test("cleanup atomic replace preserves mode and removes temp",
+             (cleanup_card.stat().st_mode & 0o777) == 0o640 and
+             not list(cleanup_vault.glob('*.tmp')))
+
+        nested_delimiter = cleanup_vault / 'nested-delimiter.md'
+        nested_delimiter.write_bytes(
+            b'---\ndescription: >-\n  ' +
+            ((cleanup_unit + ' ') * 2).encode('utf-8') +
+            b'\nnotes: |-\n  ---\n  keep this block\n---\n# Body\n'
+        )
+        nested_result = clean_file(nested_delimiter, apply=True)
+        nested_bytes = nested_delimiter.read_bytes()
+        test("cleanup ignores indented delimiters in another frontmatter field",
+             nested_result is not None and nested_result['status'] == 'cleaned' and
+             b'notes: |-\n  ---\n  keep this block\n---\n# Body\n' in nested_bytes,
+             f"got: {nested_result!r}, bytes={nested_bytes!r}")
+
+        giant_periodic = cleanup_vault / 'giant-periodic.md'
+        giant_periodic.write_bytes(
+            b'---\ndescription: >-\n  ' +
+            ((cleanup_unit + ' ') * 3000).encode('utf-8') + b'\n---\nBody\n'
+        )
+        giant_periodic_result = clean_file(giant_periodic, apply=False)
+        test("cleanup recovers giant periodic description without cap",
+             giant_periodic_result is not None and
+             giant_periodic_result['status'] == 'cleaned' and
+             giant_periodic_result['new_size'] < 1000,
+             f"got: {giant_periodic_result!r}")
+
+        giant_nonperiodic = cleanup_vault / 'giant-nonperiodic.md'
+        nonperiodic_value = ''.join(
+            f'{index:08x}:{(index * index + 17) % 10000019:08x};'
+            for index in range(6000)
+        ).encode('ascii')
+        giant_nonperiodic.write_bytes(
+            b'---\ndescription: >-\n  ' + nonperiodic_value + b'\n---\nBody\n'
+        )
+        giant_nonperiodic_before = giant_nonperiodic.read_bytes()
+        giant_review = clean_file(giant_nonperiodic, apply=True)
+        test("cleanup only reports giant nonperiodic description without cap",
+             giant_review is not None and giant_review['status'] == 'review' and
+             giant_nonperiodic.read_bytes() == giant_nonperiodic_before,
+             f"got: {giant_review!r}")
+        giant_capped = clean_file(giant_nonperiodic, apply=False, max_chars=500)
+        test("cleanup repairs giant nonperiodic description with schema cap",
+             giant_capped is not None and giant_capped['status'] == 'cleaned' and
+             giant_capped['new_size'] < giant_capped['old_size'],
+             f"got: {giant_capped!r}")
 
         # --- discover.py ---
         print("\n--- discover.py ---")

@@ -6,6 +6,7 @@ Full documentation for `schema.json` — generated per vault, never shipped with
 
 ```json
 {
+  "description_max_chars": 500,
   "node_types": { ... },
   "type_aliases": { ... },
   "field_fixes": { ... },
@@ -18,6 +19,23 @@ Full documentation for `schema.json` — generated per vault, never shipped with
   "decay": { ... },
   "ignore_tags": [ ... ]
 }
+```
+
+## description_max_chars
+
+Optional positive integer limiting frontmatter `description` length. When the
+key is absent, valid long descriptions are preserved. `enforce.py` always
+collapses substantial exact repetition caused by the historical frontmatter
+writer bug, then applies this limit only when configured.
+
+`cleanup.py` uses the same setting for bounded-memory repair. A giant,
+non-periodic description is reported and left byte-identical when no cap is
+configured; with a cap, cleanup can replace it safely from the retained prefix.
+
+Example:
+
+```json
+"description_max_chars": 500
 ```
 
 ## node_types
