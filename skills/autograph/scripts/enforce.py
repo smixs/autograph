@@ -213,6 +213,11 @@ def main():
     verbose = '--verbose' in args
 
     schema = load_schema(schema_path)
+    try:
+        get_description_max_chars(schema)
+    except ValueError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(2)
     stats, dupes = enforce(vault_dir, schema, apply=apply, verbose=verbose)
     score = health_score(stats, dupes)
 

@@ -835,6 +835,35 @@ def main():
              tiny_after.get('description', '').endswith('…'),
              f"code={code}, desc={tiny_after.get('description')!r}, err={err[:200]!r}")
 
+        one_char_schema_data = json.loads(json.dumps(SCHEMA))
+        one_char_schema_data['description_max_chars'] = 1
+        one_char_schema_path = tmp / 'schema-one-char-description-cap.json'
+        one_char_schema_path.write_text(json.dumps(one_char_schema_data), encoding="utf-8")
+        one_char_card_vault = tmp / 'one-char-description-cap-vault'
+        one_char_card_vault.mkdir(parents=True, exist_ok=True)
+        one_char_card = one_char_card_vault / 'short.md'
+        one_char_card.write_text(
+            "---\ntype: note\nstatus: active\ntags: [short]\n"
+            "description: Fifteen letters\n---\n# Short\n",
+            encoding="utf-8",
+        )
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(one_char_card_vault), str(one_char_schema_path), '--apply'])
+        one_char_after = parse_frontmatter(one_char_card.read_text(encoding="utf-8"))[0]
+        test("enforce applies one-character description cap",
+             code == 0 and one_char_after.get('description') == '…',
+             f"code={code}, desc={one_char_after.get('description')!r}, err={err[:200]!r}")
+
+        invalid_cap_schema_data = json.loads(json.dumps(SCHEMA))
+        invalid_cap_schema_data['description_max_chars'] = True
+        invalid_cap_schema_path = tmp / 'schema-invalid-description-cap.json'
+        invalid_cap_schema_path.write_text(json.dumps(invalid_cap_schema_data), encoding="utf-8")
+        code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
+                              str(one_char_card_vault), str(invalid_cap_schema_path)])
+        test("enforce CLI reports invalid description cap without traceback",
+             code == 2 and 'description_max_chars' in err and 'Traceback' not in err,
+             f"code={code}, out={out[:200]!r}, err={err[:300]!r}")
+
         # enforce never reads giant cards whole. cleanup.py owns that repair.
         oversize_vault = tmp / 'oversize-vault'
         oversize_vault.mkdir(parents=True, exist_ok=True)

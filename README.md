@@ -9,7 +9,7 @@ One `schema.json` keeps the vault typed, linked, deduplicated, and decaying — 
 
 [![skills.sh](https://skills.sh/b/smixs/autograph)](https://skills.sh/smixs/autograph)
 [![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-4dc9f6?style=flat&labelColor=0a0e14)](https://code.claude.com/docs/en/plugins)
-[![Tests](https://img.shields.io/badge/tests-282%2F282-b0e8ff?style=flat&labelColor=0a0e14)](./skills/autograph/tests)
+[![Tests](https://img.shields.io/badge/tests-284%2F284-b0e8ff?style=flat&labelColor=0a0e14)](./skills/autograph/tests)
 [![License](https://img.shields.io/badge/license-MIT-ffffff?style=flat&labelColor=0a0e14)](./LICENSE)
 
 English · [Русский](./README.ru.md)
@@ -18,7 +18,7 @@ English · [Русский](./README.ru.md)
 
 ---
 
-**autograph** is a memory engine for [Obsidian](https://obsidian.md) vaults that AI agents write to. You define the taxonomy once in `schema.json` — card types, folders, allowed statuses, how fast each kind of knowledge decays. From there the engine places new cards, repairs wiki-links, merges duplicate entities, forgets what you stopped touching, and scores the vault's health. It's plain Markdown you own, not a hosted database — the same files stay a human-readable second brain. The scripts are Python stdlib only, zero external dependencies, 282 tests.
+**autograph** is a memory engine for [Obsidian](https://obsidian.md) vaults that AI agents write to. You define the taxonomy once in `schema.json` — card types, folders, allowed statuses, how fast each kind of knowledge decays. From there the engine places new cards, repairs wiki-links, merges duplicate entities, forgets what you stopped touching, and scores the vault's health. It's plain Markdown you own, not a hosted database — the same files stay a human-readable second brain. The scripts are Python stdlib only, zero external dependencies, 284 tests.
 
 The problem it solves: an always-on agent drops notes into your vault every day — voice transcripts, meetings, contacts, ideas. A month later you have 800 files, broken links, three cards for the same person, and no one remembers if `status: ongoing` means `status: active`. autograph is the layer that keeps that in order without you babysitting it.
 
@@ -75,7 +75,7 @@ Andrej Karpathy's [llm-wiki](https://gist.github.com/karpathy/442a6bf555914893e9
 
 The gist draws its own line: index-first navigation "works surprisingly well at moderate scale (~100 sources, ~hundreds of pages)." Past that line, prose conventions drift between sessions, the same entity accretes under two names, contradictions pile up flagged-but-unresolved, and stale pages never leave. autograph is the engine for the other side of that line:
 
-- **There, `lint` is a prompt you remember to run. Here it's cycles the system runs** — enforce, dedup, decay, health score — backed by 282 tests that hold the schema even on the model's off day.
+- **There, `lint` is a prompt you remember to run. Here it's cycles the system runs** — enforce, dedup, decay, health score — backed by 284 tests that hold the schema even on the model's off day.
 - **Contradictions get resolved, not just noted.** "New data contradicts an old claim" becomes update-in-place supersede with provenance: the current value is rewritten, the old value moves to an append-only `## History` line.
 - **The same entity under two filenames merges by identity** — email, handle, phone — not by hoping the model cross-references it.
 - **Nothing accumulates forever.** Ebbinghaus decay demotes what you stopped touching, so the working set stays legible at ten thousand notes, not just a few hundred.
@@ -166,20 +166,20 @@ autograph/
 │   ├── schema.example.json  # starting template — copy and customize
 │   ├── references/          # bootstrap, card templates, update-in-place, daily processor
 │   ├── scripts/             # 18 engine scripts (Python stdlib only)
-│   └── tests/               # 282 self-contained tests
+│   └── tests/               # 284 self-contained tests
 └── LICENSE
 ```
 
 **Requirements:** Python 3.11+, [`uv`](https://github.com/astral-sh/uv), an Obsidian-style vault (folder of `.md` with YAML frontmatter). Optional `OPENROUTER_API_KEY` for tag/link enrichment. No `pip install` — stdlib only.
 
 ```bash
-cd skills/autograph && uv run tests/test_autograph.py   # 282/282
+cd skills/autograph && uv run tests/test_autograph.py   # 284/284
 ```
 
 ## FAQ
 
 ### What is autograph?
-autograph is a schema-as-code memory layer for Obsidian vaults written to by AI agents. One `schema.json` defines card types, folders, statuses, and decay rates; the engine enforces placement, repairs wiki-links, merges duplicate entities, applies Ebbinghaus-style decay, and scores vault health. Python stdlib only, 282 tests, MIT.
+autograph is a schema-as-code memory layer for Obsidian vaults written to by AI agents. One `schema.json` defines card types, folders, statuses, and decay rates; the engine enforces placement, repairs wiki-links, merges duplicate entities, applies Ebbinghaus-style decay, and scores vault health. Python stdlib only, 284 tests, MIT.
 
 ### How is it different from mem0, Letta, or basic-memory?
 autograph stores memory as plain Markdown in your own Obsidian vault instead of a hosted database — no API, no vendor lock-in, and the files stay a human-readable PKM. It adds typed schema enforcement, entity dedup, link repair, and memory decay that those tools don't.
