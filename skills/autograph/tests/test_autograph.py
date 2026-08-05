@@ -657,6 +657,36 @@ def main():
         test("graph backlinks exits 0", code == 0)
         test("graph backlinks finds links", 'Backlinks' in out)
 
+        # Audio attachments are embeds, not graph edges. Keep the extension
+        # check case-insensitive without swallowing Markdown files whose stem
+        # happens to end in an audio extension.
+        from graph import build_graph as build_graph_for_audio
+        audio_vault = tmp / 'audio-embed-vault'
+        audio_vault.mkdir(parents=True, exist_ok=True)
+        (audio_vault / 'source.md').write_text(
+            "\n".join([
+                "![[recording.ogg]]",
+                "![[recording.opus]]",
+                "![[recording.m4a]]",
+                "![[recording.wav]]",
+                "![[RECORDING.OGG]]",
+                "![[note.ogg.md]]",
+            ]) + "\n",
+            encoding="utf-8",
+        )
+        audio_graph = build_graph_for_audio(audio_vault, schema)
+        audio_broken = audio_graph['broken_link_list']
+        for extension in ('.ogg', '.opus', '.m4a', '.wav'):
+            test(f"graph skips {extension} audio embed",
+                 all(item['target'] != f'recording{extension}' for item in audio_broken),
+                 f"got: {audio_broken}")
+        test("graph skips uppercase audio embed",
+             all(item['target'] != 'RECORDING.OGG' for item in audio_broken),
+             f"got: {audio_broken}")
+        test("graph keeps .ogg.md note link broken",
+             audio_broken == [{'source': 'source', 'target': 'note.ogg'}],
+             f"got: {audio_broken}")
+
         # --- moc.py ---
         print("\n--- moc.py ---")
         _schema_cache.clear()
