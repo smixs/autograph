@@ -18,8 +18,12 @@ from common import (
     load_schema, parse_frontmatter, write_frontmatter, format_field,
     walk_vault, rel_path, infer_domain, infer_type, IGNORE_DIRS,
     get_type_aliases, get_field_fixes, get_node_types, get_status_defaults,
-    collect_duplicate_groups
+    collect_duplicate_groups, collapse_repeated_description, cap_description,
+    get_description_max_chars,
 )
+
+ENFORCE_MAX_FILE_BYTES = 10 * 1024 * 1024
+# cleanup.py owns bounded-memory repair; enforce handles ordinary-sized cards.
 
 
 def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
@@ -27,19 +31,27 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
     type_aliases = get_type_aliases(schema)
     field_fixes = get_field_fixes(schema)
     region_fixes = schema.get('region_fixes', {})
+    description_max_chars = get_description_max_chars(schema)
 
     stats = {
         'total': 0, 'valid': 0, 'fixed': 0, 'needs_review': 0,
-        'no_fm': 0, 'fixes': defaultdict(int), 'review_items': []
+        'no_fm': 0, 'skipped_oversize': 0,
+        'fixes': defaultdict(int), 'review_items': []
     }
+    eligible_files = []
     for md in walk_vault(vault_dir):
         rp = rel_path(md, vault_dir)
         stats['total'] += 1
 
         try:
+            if md.stat().st_size > ENFORCE_MAX_FILE_BYTES:
+                stats['skipped_oversize'] += 1
+                print(f"  WARNING: skipping oversized file: {rp}; run cleanup.py first")
+                continue
             content = md.read_text(errors='replace')
         except Exception:
             continue
+        eligible_files.append(md)
 
         fields, body, orig_lines = parse_frontmatter(content)
         if fields is None:
@@ -126,14 +138,16 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
             else:
                 issues.append('missing description')
         elif isinstance(desc, str) and len(desc) > 20:
-            # Detect duplicated description (processor bug: same text repeated)
-            half = len(desc) // 2
-            first_half = desc[:half].strip()
-            second_half = desc[half:].strip()
-            if first_half and first_half == second_half:
-                fields['description'] = first_half
+            collapsed = collapse_repeated_description(desc)
+            if len(collapsed) < len(desc.strip()):
+                fields['description'] = collapsed
                 changed = True
                 stats['fixes']['desc_dedup'] += 1
+            capped = cap_description(fields['description'], description_max_chars)
+            if capped != fields['description']:
+                fields['description'] = capped
+                changed = True
+                stats['fixes']['desc_truncated'] += 1
 
         # --- TAGS ---
         tags = fields.get('tags', '')
@@ -163,7 +177,8 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
         if not changed and not issues:
             stats['valid'] += 1
 
-    dupes = collect_duplicate_groups(vault_dir, schema)
+    dupes = (collect_duplicate_groups(vault_dir, schema, files=eligible_files)
+             if eligible_files else {})
     return stats, dupes
 
 
@@ -209,6 +224,7 @@ def main():
     print(f"  Auto-fixed:      {stats['fixed']}")
     print(f"  Needs review:    {stats['needs_review']}")
     print(f"  No frontmatter:  {stats['no_fm']}")
+    print(f"  Oversize skipped:{stats['skipped_oversize']:>4}")
     print(f"\n  Fixes:")
     for k, v in sorted(stats['fixes'].items(), key=lambda x: -x[1]):
         print(f"    {k}: {v}")
@@ -231,6 +247,7 @@ def main():
     out.write_text(json.dumps({
         'score': score, 'total': stats['total'], 'valid': stats['valid'],
         'fixed': stats['fixed'], 'review': stats['needs_review'],
+        'skipped_oversize': stats['skipped_oversize'],
         'duplicates': len(dupes), 'mode': mode,
         'fixes': dict(stats['fixes']),
     }, indent=2))
