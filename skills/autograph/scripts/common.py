@@ -150,6 +150,37 @@ def get_description_max_chars(schema: dict) -> int | None:
     return value
 
 
+def get_raw_dirs(schema: dict) -> list[str]:
+    """Return validated, boundary-safe raw-source directory prefixes.
+
+    Values are relative POSIX directory paths. A trailing slash is normalized
+    so callers can use exact prefix matching without treating ``daily-old/``
+    as a child of ``daily/``.
+    """
+    values = schema.get('raw_dirs', [])
+    if not isinstance(values, list):
+        raise ValueError('raw_dirs must be an array of relative directory strings')
+
+    normalized = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError('raw_dirs entries must be non-empty trimmed strings')
+        if ('\\' in value or value.startswith('/') or value.endswith('//') or
+                re.match(r'^[A-Za-z]:', value)):
+            raise ValueError(f'raw_dirs entry must be a relative POSIX directory: {value!r}')
+        bare = value[:-1] if value.endswith('/') else value
+        parts = bare.split('/')
+        if not bare or any(part in ('', '.', '..') for part in parts):
+            raise ValueError(f'raw_dirs entry contains an unsafe path segment: {value!r}')
+        prefix = bare + '/'
+        if prefix in seen:
+            raise ValueError(f'raw_dirs contains a duplicate directory: {value!r}')
+        seen.add(prefix)
+        normalized.append(prefix)
+    return normalized
+
+
 def get_conflict_fields(schema: dict) -> list:
     """Scalar fields where differing values = temporal conflict (recency wins)."""
     cfg = schema.get('conflict_fields', {}) or {}

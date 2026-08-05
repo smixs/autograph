@@ -21,27 +21,37 @@ from collections import defaultdict
 from common import (
     load_schema, parse_frontmatter, walk_vault, rel_path,
     extract_wikilinks, infer_domain, get_domain_map, IGNORE_DIRS,
-    build_link_index, normalize_link_target, resolve_link_target, is_hub_path
+    build_link_index, normalize_link_target, resolve_link_target, is_hub_path,
+    get_raw_dirs,
 )
 
 EMBED_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.svg', '.pdf', '.mp3', '.mp4', '.webp',
               '.ogg', '.opus', '.m4a', '.wav'}
 
 
+def is_raw_path(path: str, raw_dirs: list[str]) -> bool:
+    """Return whether a relative vault path is inside a configured raw dir."""
+    normalized = path.replace('\\', '/')
+    return any(normalized.startswith(prefix) for prefix in raw_dirs)
+
+
 def build_graph(vault_dir: Path, schema: dict) -> dict:
     """Scan vault, build full graph structure."""
     vault_dir = Path(vault_dir)
     files = walk_vault(vault_dir)
+    raw_dirs = get_raw_dirs(schema)
 
     link_index = build_link_index(vault_dir, files)
 
     nodes = {}
     all_links = []      # (source, raw_target, resolved_target)
     broken_links = []   # (source, raw_target)
+    raw_broken_links = []
 
     for md in files:
         rp = rel_path(md, vault_dir)
         rp_noext = rp.replace('.md', '')
+        is_raw = is_raw_path(rp, raw_dirs)
         try:
             content = md.read_text(errors='replace')
         except Exception:
@@ -67,12 +77,14 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
                 outgoing.append(resolved)
                 all_links.append((rp_noext, target_clean, resolved))
             else:
-                broken_links.append((rp_noext, target_clean))
+                destination = raw_broken_links if is_raw else broken_links
+                destination.append((rp_noext, target_clean))
 
         nodes[rp_noext] = {
             'domain': domain,
             'type': card_type,
             'has_description': has_desc,
+            'is_raw': is_raw,
             'outgoing': outgoing,
             'incoming': [],  # filled below
             'link_count': len(outgoing),
@@ -85,40 +97,51 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
 
     # Compute stats
     total = len(nodes)
+    card_nodes = {path: node for path, node in nodes.items() if not node['is_raw']}
+    card_total = len(card_nodes)
+    raw_total = total - card_total
     total_links = len(all_links)
     avg_links = total_links / max(total, 1)
+    card_links = sum(node['link_count'] for node in card_nodes.values())
+    card_avg_links = card_links / max(card_total, 1)
 
-    orphans = [p for p, n in nodes.items() if not n['incoming'] and not is_hub_path(p)]
-    dead_ends = [p for p, n in nodes.items() if not n['outgoing'] and n['incoming']]
-    desc_count = sum(1 for n in nodes.values() if n['has_description'])
-    desc_ratio = desc_count / max(total, 1)
+    orphans = [p for p, n in card_nodes.items()
+               if not n['incoming'] and not is_hub_path(p)]
+    dead_ends = [p for p, n in card_nodes.items() if not n['outgoing'] and n['incoming']]
+    desc_count = sum(1 for n in card_nodes.values() if n['has_description'])
+    desc_ratio = desc_count / card_total if card_total else 1.0
 
-    orphan_ratio = len(orphans) / max(total, 1)
-    broken_ratio = len(broken_links) / max(total, 1)
+    orphan_ratio = len(orphans) / max(card_total, 1)
+    broken_ratio = len(broken_links) / max(card_total, 1)
 
     health = 100.0
     health -= orphan_ratio * 30
     health -= broken_ratio * 30
-    health -= max(0, (3 - avg_links) * 15)
+    if card_total:
+        health -= max(0, (3 - card_avg_links) * 15)
     health -= (1 - desc_ratio) * 10
     health = max(0, round(health, 1))
 
     # Domain stats + non-standard domain detection
     valid_domains = set(get_domain_map(schema).values()) if schema else set()
-    domain_stats = defaultdict(lambda: {'files': 0, 'links': 0, 'orphans': 0})
+    domain_stats = defaultdict(lambda: {
+        'files': 0, 'raw_files': 0, 'links': 0, 'orphans': 0,
+    })
     nonstandard_domains = defaultdict(list)  # domain -> [file_paths]
     for path, node in nodes.items():
         d = node['domain']
         domain_stats[d]['files'] += 1
         domain_stats[d]['links'] += node['link_count']
-        if valid_domains and d not in valid_domains:
+        if node['is_raw']:
+            domain_stats[d]['raw_files'] += 1
+        elif valid_domains and d not in valid_domains:
             nonstandard_domains[d].append(path)
     for o in orphans:
         if o in nodes:
             domain_stats[nodes[o]['domain']]['orphans'] += 1
 
     nonstandard_count = sum(len(v) for v in nonstandard_domains.values())
-    nonstandard_ratio = nonstandard_count / max(total, 1)
+    nonstandard_ratio = nonstandard_count / max(card_total, 1)
     health -= nonstandard_ratio * 5  # small penalty for domain inconsistency
     health = max(0, round(health, 1))
 
@@ -126,11 +149,16 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
         'generated': datetime.now().isoformat(),
         'stats': {
             'total_files': total,
+            'card_files': card_total,
+            'raw_files': raw_total,
             'total_links': total_links,
             'avg_links': round(avg_links, 2),
+            'card_links': card_links,
+            'avg_links_per_card': round(card_avg_links, 2),
             'orphans': len(orphans),
             'dead_ends': len(dead_ends),
             'broken_links': len(broken_links),
+            'raw_broken_links': len(raw_broken_links),
             'desc_coverage': round(desc_ratio * 100, 1),
             'nonstandard_domains': nonstandard_count,
             'health_score': health,
@@ -140,7 +168,9 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
         'orphan_list': sorted(orphans),
         'dead_end_list': sorted(dead_ends),
         'broken_link_list': [{'source': s, 'target': t} for s, t in broken_links],
-        'nodes': {k: {'domain': v['domain'], 'type': v['type'], 'has_description': v['has_description'],
+        'raw_broken_link_list': [{'source': s, 'target': t} for s, t in raw_broken_links],
+        'nodes': {k: {'domain': v['domain'], 'type': v['type'],
+                       'has_description': v['has_description'], 'is_raw': v['is_raw'],
                        'outgoing': v['outgoing'], 'incoming': v['incoming']}
                   for k, v in nodes.items()},
     }
@@ -174,11 +204,15 @@ def generate_report(stats: dict, domains: dict) -> str:
         f"|--------|-------|",
         f"| Health Score | **{s['health_score']}/100** |",
         f"| Total files | {s['total_files']} |",
+        f"| Health-scored cards | {s['card_files']} |",
+        f"| Raw source files | {s['raw_files']} |",
         f"| Total links | {s['total_links']} |",
         f"| Avg links/file | {s['avg_links']} |",
+        f"| Avg links/scored card | {s['avg_links_per_card']} |",
         f"| Orphans | {s['orphans']} |",
         f"| Dead-ends | {s['dead_ends']} |",
         f"| Broken links | {s['broken_links']} |",
+        f"| Raw-source broken links (informational) | {s['raw_broken_links']} |",
         f"| Desc coverage | {s['desc_coverage']}% |",
         f"",
         f"## Domains",
@@ -333,6 +367,11 @@ def main():
 
     schema_path = find_schema(args)
     schema = load_schema(schema_path) if schema_path else {}
+    try:
+        get_raw_dirs(schema)
+    except ValueError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(2)
 
     if cmd == 'health':
         graph = build_graph(vault_dir, schema)
@@ -350,11 +389,16 @@ def main():
         print(f"\n{'='*50}")
         print(f"Health Score:     {stats['health_score']}/100")
         print(f"Total files:      {stats['total_files']}")
+        print(f"Scored cards:     {stats['card_files']}")
+        print(f"Raw source files: {stats['raw_files']}")
         print(f"Total links:      {stats['total_links']}")
         print(f"Avg links/file:   {stats['avg_links']}")
+        print(f"Avg links/card:   {stats['avg_links_per_card']}")
         print(f"Orphan files:     {stats['orphans']}")
         print(f"Dead-ends:        {stats['dead_ends']}")
         print(f"Broken links:     {stats['broken_links']}")
+        if stats['raw_broken_links']:
+            print(f"Raw broken links: {stats['raw_broken_links']} (informational)")
         print(f"Desc coverage:    {stats['desc_coverage']}%")
         ns_count = stats.get('nonstandard_domains', 0)
         if ns_count > 0:

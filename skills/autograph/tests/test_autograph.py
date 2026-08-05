@@ -327,6 +327,7 @@ def main():
             build_link_index, resolve_link_target, collect_duplicate_groups, is_hub_path,
             get_conflict_fields, get_identity_config, card_recency_date, normalize_identity_value,
             collapse_repeated_description, cap_description, get_description_max_chars,
+            get_raw_dirs,
         )
 
         # 1.1 schema loading
@@ -335,6 +336,28 @@ def main():
         test("schema has node_types", 'node_types' in schema)
         test("schema has decay config", 'decay' in schema)
         test("schema has domain_inference", 'domain_inference' in schema)
+        test("raw_dirs defaults to empty", get_raw_dirs(schema) == [])
+        test("raw_dirs normalizes directory boundaries",
+             get_raw_dirs({'raw_dirs': ['daily', 'imports/audio/']}) ==
+             ['daily/', 'imports/audio/'])
+        invalid_raw_dirs_type = False
+        try:
+            get_raw_dirs({'raw_dirs': 'daily/'})
+        except ValueError:
+            invalid_raw_dirs_type = True
+        test("raw_dirs rejects non-array config", invalid_raw_dirs_type)
+        invalid_raw_dirs_path = False
+        try:
+            get_raw_dirs({'raw_dirs': ['daily/../cards']})
+        except ValueError:
+            invalid_raw_dirs_path = True
+        test("raw_dirs rejects traversal", invalid_raw_dirs_path)
+        duplicate_raw_dirs = False
+        try:
+            get_raw_dirs({'raw_dirs': ['daily', 'daily/']})
+        except ValueError:
+            duplicate_raw_dirs = True
+        test("raw_dirs rejects normalized duplicates", duplicate_raw_dirs)
 
         # 1.2 IGNORE_DIRS
         test("IGNORE_DIRS is frozenset", isinstance(IGNORE_DIRS, frozenset))
@@ -710,6 +733,76 @@ def main():
         test("graph keeps .ogg.md note link broken",
              audio_broken == [{'source': 'source', 'target': 'note.ogg'}],
              f"got: {audio_broken}")
+
+        # Raw sources remain addressable graph nodes, but only durable cards
+        # contribute to health denominators and outgoing quality penalties.
+        from graph import is_raw_path
+        configured_raw_dirs = get_raw_dirs({'raw_dirs': ['daily']})
+        test("raw path boundary includes configured child",
+             is_raw_path('daily/2026-08-05.md', configured_raw_dirs))
+        test("raw path boundary excludes sibling prefix",
+             not is_raw_path('daily-backup/2026-08-05.md', configured_raw_dirs))
+
+        raw_vault = tmp / 'raw-health-vault'
+        (raw_vault / 'daily').mkdir(parents=True, exist_ok=True)
+        (raw_vault / 'cards').mkdir(parents=True, exist_ok=True)
+        (raw_vault / 'daily/transcript.md').write_text(
+            "# Transcript\n\n[[cards/card]] [[missing-from-raw]]\n",
+            encoding="utf-8",
+        )
+        (raw_vault / 'cards/card.md').write_text(
+            "---\ntype: note\ndescription: Durable card description\n---\n"
+            "# Card\n\n[[daily/transcript]]\n",
+            encoding="utf-8",
+        )
+        raw_schema = json.loads(json.dumps(schema))
+        raw_schema['raw_dirs'] = ['daily/']
+        raw_graph = build_graph_for_audio(raw_vault, raw_schema)
+        raw_stats = raw_graph['stats']
+        test("graph reports card and raw file counts",
+             raw_stats['total_files'] == 2 and raw_stats['card_files'] == 1 and
+             raw_stats['raw_files'] == 1,
+             f"got: {raw_stats}")
+        test("graph retains and marks raw nodes",
+             raw_graph['nodes']['daily/transcript']['is_raw'] is True and
+             raw_graph['nodes']['cards/card']['is_raw'] is False)
+        test("graph preserves raw and card links both ways",
+             raw_graph['nodes']['daily/transcript']['outgoing'] == ['cards/card'] and
+             raw_graph['nodes']['daily/transcript']['incoming'] == ['cards/card'] and
+             raw_graph['nodes']['cards/card']['incoming'] == ['daily/transcript'],
+             f"got: {raw_graph['nodes']}")
+        test("graph excludes raw files from card description and orphan metrics",
+             raw_stats['desc_coverage'] == 100.0 and raw_stats['orphans'] == 0 and
+             'daily/transcript' not in raw_graph['orphan_list'],
+             f"got: {raw_stats}, orphans={raw_graph['orphan_list']}")
+        test("graph reports raw broken links without card penalty",
+             raw_stats['broken_links'] == 0 and raw_stats['raw_broken_links'] == 1 and
+             raw_graph['raw_broken_link_list'] == [
+                 {'source': 'daily/transcript', 'target': 'missing-from-raw'}
+             ],
+             f"got: {raw_stats}, list={raw_graph['raw_broken_link_list']}")
+        test("graph card link average excludes raw outgoing links",
+             raw_stats['card_links'] == 1 and raw_stats['avg_links_per_card'] == 1.0,
+             f"got: {raw_stats}")
+
+        all_raw_vault = tmp / 'all-raw-health-vault'
+        (all_raw_vault / 'daily').mkdir(parents=True, exist_ok=True)
+        (all_raw_vault / 'daily/only.md').write_text("# Raw only\n", encoding="utf-8")
+        all_raw_graph = build_graph_for_audio(all_raw_vault, raw_schema)
+        test("graph scores an all-raw vault neutrally",
+             all_raw_graph['stats']['card_files'] == 0 and
+             all_raw_graph['stats']['health_score'] == 100.0 and
+             all_raw_graph['stats']['desc_coverage'] == 100.0,
+             f"got: {all_raw_graph['stats']}")
+
+        invalid_raw_schema = tmp / 'invalid-raw-schema.json'
+        invalid_raw_schema.write_text(
+            json.dumps({'raw_dirs': ['../outside']}), encoding="utf-8")
+        code, _, err = run([py, str(SCRIPTS_DIR / 'graph.py'), 'health',
+                            str(raw_vault), str(invalid_raw_schema)])
+        test("graph CLI rejects unsafe raw_dirs",
+             code == 2 and 'raw_dirs' in err and 'unsafe' in err,
+             f"code={code}, err={err!r}")
 
         # --- moc.py ---
         print("\n--- moc.py ---")
