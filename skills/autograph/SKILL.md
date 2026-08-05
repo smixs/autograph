@@ -65,6 +65,7 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 ### Decision Logic
 
 ```
+0. Run `cleanup.py <vault-dir> [schema.json]`; apply reported deterministic repairs before whole-file tools
 1. Run `graph.py health <vault-dir>` → check score
 2. If health < 90 → investigate:
    a. broken_links > 0  → `graph.py fix <vault-dir> --apply`
@@ -299,6 +300,8 @@ uv run scripts/engine.py init <vault-dir> --dry-run                             
 OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py swarm-links <vault-dir> --apply  # link enrichment
 OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py tags <vault-dir> --apply         # tag enrichment
 uv run scripts/link_cleanup.py <vault-dir> --apply                               # link cleanup
+uv run scripts/cleanup.py <vault-dir> [schema.json]                              # preview bounded description repair
+uv run scripts/cleanup.py <vault-dir> [schema.json] --apply                      # atomic repair before enforce/graph
 ```
 
 ## Scripts
@@ -311,6 +314,7 @@ uv run scripts/link_cleanup.py <vault-dir> --apply                              
 | swarm_prepare.py | Workflow 1: bin-pack vault into agent batches |
 | swarm_reduce.py | Workflow 1: consolidate + validate schema |
 | enforce.py | Workflow 1: validate + autofix against schema |
+| cleanup.py | Preflight: bounded-memory repair for bug-bloated descriptions |
 | link_cleanup.py | Workflow 1/4: remove phantom wikilinks from ## Related |
 | enrich.py | Workflow 1/4: tags + swarm-links (catalog-oriented link enrichment) |
 | dedup.py | Workflow 1: safe merge + .trash/ |
@@ -342,6 +346,7 @@ uv run scripts/link_cleanup.py <vault-dir> --apply                              
 | **Creating a near-duplicate instead of updating** | **Workflow 3 Step 0 — `search.py`/grep first. Same subject → UPDATE or SUPERSEDE the existing card, never a second one.** |
 | **Two contradictory current values on one subject** | **SUPERSEDE: rewrite the current value (Compiled Truth), move the old one to append-only `## History`. Never leave both standing.** |
 | **Touching archive cards to active directly** | **Use graduated recall — touch promotes one tier at a time (archive→cold→warm→active).** |
+| Running whole-file tools on a giant card | Run `cleanup.py` first; `enforce.py` skips files over 10 MiB and reports them. |
 | Sending full vault to one agent | Use `swarm_prepare.py` — bin-packs into ~50K token batches. |
 | Running Wave 2 without Wave 1 | `swarm_reduce.py prepare` needs JSONL in `.graph/swarm/classifications/`. |
 | Using schema.example.json directly | Run discover → generate your own schema.json |

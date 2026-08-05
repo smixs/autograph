@@ -116,13 +116,20 @@ Present schema to user. They approve, adjust, or reject. Never auto-apply a gene
 ## Phase 4: Bootstrap + Enforce (frontmatter + structural fields)
 
 ```bash
+python3 scripts/cleanup.py <vault-dir> schema.json        # bounded-memory dry run
+python3 scripts/cleanup.py <vault-dir> schema.json --apply # repair before whole-file tools
 python3 scripts/engine.py init <vault-dir> --dry-run     # bootstrap bare files
 python3 scripts/engine.py init <vault-dir>                # apply
 python3 scripts/enforce.py <vault-dir> schema.json        # dry run
 python3 scripts/enforce.py <vault-dir> schema.json --apply # apply
 ```
 
-Bootstrap adds frontmatter to bare files. Enforce auto-fixes: type aliases, missing types (inferred from path), status typos, missing domains, missing system fields. Flags for review: missing descriptions, missing tags, unknown statuses.
+Cleanup repairs repeated descriptions left by historical writer bugs while
+copying card bodies byte-for-byte. Non-periodic giant descriptions are only
+truncated when `description_max_chars` is explicitly configured; otherwise they
+are reported for review. Bootstrap then adds frontmatter to bare files. Enforce
+auto-fixes type aliases, missing types, status typos, missing domains, and
+missing system fields. Enforce skips files over 10 MiB so cleanup must run first.
 
 ## Phase 5: Link Cleanup (remove phantom wikilinks)
 
