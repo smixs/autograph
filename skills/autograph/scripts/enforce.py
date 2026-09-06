@@ -7,9 +7,9 @@
 autograph enforce — validate and fix vault cards against schema.
 
 Usage:
-  python3 enforce.py <vault-dir> <schema.json>              # dry run
-  python3 enforce.py <vault-dir> <schema.json> --apply       # apply fixes
-  python3 enforce.py <vault-dir> <schema.json> --verbose
+  uv run enforce.py <vault-dir> <schema.json>              # dry run
+  uv run enforce.py <vault-dir> <schema.json> --apply       # apply fixes
+  uv run enforce.py <vault-dir> <schema.json> --verbose
 """
 
 import json

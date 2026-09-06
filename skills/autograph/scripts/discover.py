@@ -8,7 +8,7 @@ autograph discover — Phase 1: scan vault, extract natural enums.
 Finds all frontmatter values, wikilink patterns, folder structures.
 Outputs discovered schema candidates to stdout as JSON.
 
-Usage: python3 discover.py <vault-dir> [--verbose]
+Usage: uv run discover.py <vault-dir> [--verbose]
 """
 
 import re

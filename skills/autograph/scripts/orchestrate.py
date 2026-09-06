@@ -181,7 +181,7 @@ def cmd_dedup_prepare(vault_dir: Path):
         'instructions': (
             'Review each cluster. For each, decide: merge_duplicate (safe) or manual_hold (ambiguous). '
             'Set "approved": true on safe merges. Then run: '
-            'python3 dedup.py <vault> --apply-manifest <this-file>'
+            'uv run dedup.py <vault> --apply-manifest <this-file>'
         ),
     }
 
@@ -241,7 +241,7 @@ def cmd_link_prepare(vault_dir: Path, force: bool = False):
             'For each domain, review files and suggest 3-8 links from the catalog. '
             'ONLY use stems from all_stems. No self-links, no existing links. '
             'Write results as batch-NNN-results.json to .graph/enrich/specialists/. '
-            'Then run: python3 enrich.py swarm-links <vault> --apply '
+            'Then run: uv run enrich.py swarm-links <vault> --apply '
             'to apply from that directory.'
         ),
     }

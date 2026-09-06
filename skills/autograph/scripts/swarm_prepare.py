@@ -9,7 +9,7 @@ autograph swarm_prepare — split vault into batches for parallel LLM classifica
 Map phase: walks vault, estimates tokens per file, greedy bin-packs into batches
 that fit a token budget, writes manifests for Wave 1 agents.
 
-Usage: python3 swarm_prepare.py <vault-dir> [discovery.json] [--budget 50000]
+Usage: uv run swarm_prepare.py <vault-dir> [discovery.json] [--budget 50000]
 """
 
 import json

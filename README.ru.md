@@ -173,7 +173,7 @@ autograph/
 
 ```bash
 cd skills/autograph && uv run tests/test_autograph.py   # 299/299
-uv run tests/test_integrity.py                         # 19 регрессий целостности
+uv run tests/test_integrity.py                         # 20 регрессий целостности
 ```
 
 ## FAQ

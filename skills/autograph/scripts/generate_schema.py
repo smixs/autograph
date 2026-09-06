@@ -6,8 +6,8 @@
 """
 autograph generate_schema — turn discovery JSON into a draft schema.json.
 
-Usage: python3 generate_schema.py <discovery.json> [output.json]
-       cat discovery.json | python3 generate_schema.py -
+Usage: uv run generate_schema.py <discovery.json> [output.json]
+       cat discovery.json | uv run generate_schema.py -
 """
 
 import json, sys

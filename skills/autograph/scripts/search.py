@@ -13,8 +13,8 @@ module (zero extra deps, no native build) + a free rerank over the nightly
 (reads arbitrary frontmatter — no hardcoded card types). Degrades softly:
 any engine failure falls back to a naive substring scan, the call never fails.
 
-  python3 search.py <query> [--vault DIR] [--limit N] [--scope DIR ...] [--json]
-  python3 search.py --selftest
+  uv run search.py <query> [--vault DIR] [--limit N] [--scope DIR ...] [--json]
+  uv run search.py --selftest
 
 Output (--json): {"count", "engine", "hits": [{file, score, status, confidence, snippet}]}
 Port of Iva's agent/tools/memory_search.ts. Hybrid dense/embeddings layer is

@@ -8,10 +8,10 @@ autograph dedup — find duplicate entities and write reproducible cleanup
 manifests before any destructive-ish move.
 
 Usage:
-  python3 dedup.py <vault-dir> [schema.json]                         # report only
-  python3 dedup.py <vault-dir> [schema.json] --manifest /tmp/m.json   # write dry-run manifest
-  python3 dedup.py <vault-dir> [schema.json] --apply-manifest m.json  # apply approved entries
-  python3 dedup.py <vault-dir> [schema.json] --apply                  # legacy apply, blocked by policy schemas
+  uv run dedup.py <vault-dir> [schema.json]                         # report only
+  uv run dedup.py <vault-dir> [schema.json] --manifest /tmp/m.json   # write dry-run manifest
+  uv run dedup.py <vault-dir> [schema.json] --apply-manifest m.json  # apply approved entries
+  uv run dedup.py <vault-dir> [schema.json] --apply                  # legacy apply, blocked by policy schemas
 
 Safety:
   - NEVER deletes files. Moves extras to <vault>/.trash/dedup-YYYY-MM-DD/

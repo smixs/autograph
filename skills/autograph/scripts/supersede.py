@@ -12,7 +12,7 @@ that silent grep-recall surfaces as conflicting facts. This pass only REPORTS
 (dry-run, like dedup.py) — the nightly LLM rollup reads the report and resolves
 (rewrite current value + move old to ## History, per dbrain-processor rules).
 
-  python3 supersede.py <vault-dir> [--apply] [--verbose]
+  uv run supersede.py <vault-dir> [--apply] [--verbose]
 
 Default: dry-run → writes .graph/supersede-candidates.json + prints a summary.
 --apply: additionally stamps the OLDER card status=superseded + superseded_by pointer

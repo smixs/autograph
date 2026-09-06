@@ -124,6 +124,27 @@ class IntegrityTests(unittest.TestCase):
             self.assertNotIn('# Second', q.read_text())
             self.assertEqual(q.read_text().count('type: index'), 1)
 
+    def test_generated_review_commands_use_declared_dependency_runner(self):
+        from orchestrate import cmd_dedup_prepare, cmd_link_prepare
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); graph = root / '.graph'; graph.mkdir()
+            (graph / 'dedup-manifest.json').write_text(json.dumps({
+                'clusters': [{'canonical': 'a.md', 'extras': ['b.md']}]
+            }))
+            cmd_dedup_prepare(root)
+            scan = ({'a'}, {'a': 'a.md'}, {}, [{'path': 'a.md', 'domain': 'knowledge'}])
+            with patch('orchestrate.scan_vault_for_links', return_value=scan):
+                cmd_link_prepare(root)
+            for filename, script, arguments in (
+                ('dedup-review-input.json', 'dedup.py', '--apply-manifest'),
+                ('link-review-input.json', 'enrich.py', 'swarm-links'),
+            ):
+                with self.subTest(filename=filename):
+                    instructions = json.loads((graph / filename).read_text())['instructions']
+                    self.assertRegex(instructions, rf'uv run (?:scripts/)?{script}')
+                    self.assertIn(arguments, instructions)
+                    self.assertNotIn('python3 ', instructions)
+
     def test_health_does_not_dispatch_implicit_mutations(self):
         from orchestrate import cmd_health
         with tempfile.TemporaryDirectory() as d, patch('orchestrate.run_script', return_value=(0, '{}')) as run:

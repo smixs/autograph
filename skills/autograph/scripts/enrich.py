@@ -6,7 +6,7 @@
 """
 autograph enrich — tag and link enrichment via OpenRouter API.
 
-Replaces agent swarms with direct API calls. Zero external dependencies (stdlib only).
+Replaces agent swarms with direct API calls. Uses PyYAML via uv for metadata and urllib for API calls.
 
 Usage:
     enrich.py tags <vault-dir> [--apply] [--budget 50000] [--model MODEL] [--force] [--delay 0.5] [--workers 3]
