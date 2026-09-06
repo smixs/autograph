@@ -67,6 +67,10 @@ def validate_cards(vault_dir: Path, schema: dict, paths: list[str] | None = None
         if 'description' in fields and not isinstance(fields['description'], str):
             errors.append({'path': rp, 'issue': 'description must be a string'})
         for key in ('related', 'tags'):
+            # Optional empty related metadata has no graph edges. Required fields
+            # were checked above; malformed nonempty values still fail the gate.
+            if key == 'related' and fields.get(key) in (None, ''):
+                continue
             if key in fields and (not isinstance(fields[key], list) or
                                   any(not isinstance(v, str) for v in fields[key])):
                 errors.append({'path': rp, 'issue': f'{key} must be a list of strings'})

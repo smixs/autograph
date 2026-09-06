@@ -23,6 +23,17 @@ SCHEMA = {'node_types': {'note': {'required': ['description', 'tags'], 'status':
 
 
 class IntegrityTests(unittest.TestCase):
+    def test_optional_empty_related_is_not_a_broken_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); p = root / 'a.md'
+            for value in ('null', "''", '[]'):
+                p.write_text(f'---\ntype: note\nstatus: active\ndescription: Good\ntags: [tag]\nrelated: {value}\n---\n')
+                self.assertEqual(validate_cards(root, SCHEMA), [])
+                required = {**SCHEMA, 'node_types': {'note': {**SCHEMA['node_types']['note'], 'required': ['related']}}}
+                self.assertIn('missing related', {e['issue'] for e in validate_cards(root, required)})
+            p.write_text('---\ntype: note\nstatus: active\ndescription: Good\ntags: [tag]\nrelated: not-a-list\n---\n')
+            self.assertIn('related must be a list of strings', {e['issue'] for e in validate_cards(root, SCHEMA)})
+
     def test_quoted_keys_survive_roundtrip(self):
         fields = {'#note': 'Keep this fact', 'on': 'yes', '42': 'text', 'a: b': [1, 'two']}
         recovered, _, _ = parse_frontmatter('---\n' + write_frontmatter(fields, []) + '\n---\n', strict=True)

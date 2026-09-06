@@ -14,6 +14,8 @@ The manifest has a `files` array of objects with a `path` relative to the vault.
 
 The graph counts `related`, `parent`, `hub` and `superseded_by` alongside body links. Literal examples in code/comments and self-links do not count. `orphan_list` retains the no-incoming definition; `isolated_list` and `unreachable_list` report distinct problems. These sets overlap. A high scalar health score is not proof of factual accuracy or completeness.
 
+An optional `related: null` or empty string means no related edges, just like an empty list. Validation accepts that existing representation without rewriting the card. Nonempty scalar or nested-list values remain errors; a schema that requires related links still rejects an empty field.
+
 `orchestrate.py health` reports only: it does not implicitly edit cards, merge files, regenerate indexes or apply decay. Review a scoped repair manifest before invoking mutation commands.
 
 MOC generation updates only an explicit `autograph:moc:start` / `autograph:moc:end` body block. Existing MOCs without those markers are preserved for manual review. To migrate one, identify the generated section and preserve handwritten content before placing markers. Never wrap unknown handwritten content in a generated block.
