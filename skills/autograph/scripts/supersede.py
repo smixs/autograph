@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 Supersede candidate detector — deterministic contradiction scan across cards.
 
@@ -85,8 +89,8 @@ def apply_supersede(vault_dir: Path, candidates: list) -> int:
         old_path = vault_dir / old_rel
         cur_path = vault_dir / cur_rel
         try:
-            cur_fields = parse_frontmatter(cur_path.read_text(encoding="utf-8"))[0] or {}
-            fields, body, lines = parse_frontmatter(old_path.read_text(encoding="utf-8"))
+            cur_fields = parse_frontmatter(cur_path.read_text(encoding="utf-8"), strict=True)[0] or {}
+            fields, body, lines = parse_frontmatter(old_path.read_text(encoding="utf-8"), strict=True)
         except Exception:
             continue
         fields = fields or {}

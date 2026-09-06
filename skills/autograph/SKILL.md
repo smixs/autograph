@@ -15,14 +15,14 @@ One schema. One graph. Works on any vault.
 
 ## Overview
 
-No hardcoded domains, types, or paths. The agent discovers structure from data, builds a schema, then enforces it. All scripts share `common.py`. Zero external dependencies (stdlib only, API calls via urllib).
+No hardcoded domains, types, or paths. The agent discovers structure from data, builds a schema, then enforces it. All scripts share `common.py`. Metadata uses PyYAML 6.0.3 (safe scalar loader); uv installs the declared dependency. API calls use urllib.
 
 ## Quick Reference: 6 Workflows
 
 | Workflow | When to use | Entry point |
 |----------|-------------|-------------|
 | **BOOTSTRAP** | New vault / after import / first setup | `discover.py` → `enforce.py` → `graph.py health` |
-| **HEALTH** | Daily maintenance / on request | `graph.py health` → fix → moc → decay |
+| **HEALTH** | Daily maintenance / on request | graph + strict YAML checks → scoped repair manifest |
 | **CREATE / UPDATE** | New knowledge card, or new info about an existing one | `search.py` dedup → ADD/UPDATE/SUPERSEDE → link → touch |
 | **SEARCH & LINK** | Find info + strengthen connections | Hub → links → target; `graph.py orphans` → connect |
 | **ORCHESTRATE** | Automated multi-agent workflows (no API keys) | `orchestrate.py health\|bootstrap` |
@@ -47,7 +47,7 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 7. **Deduplicate:** `dedup.py --apply` (before link enrichment)
 8. **Link enrich:** `enrich.py swarm-links --apply` (**always swarm-links, never links**)
 9. **MOC generation:** `moc.py generate`
-10. **Verify:** `graph.py health` + `enforce.py` → target 90+/100
+10. **Verify:** `enforce.py --check` on the scoped manifest + `graph.py health` on the staged vault; resolve concrete validation/link findings. A health score is not an acceptance gate.
 
 ### Critical Rules
 
@@ -58,51 +58,17 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 
 ---
 
-## Workflow 2: HEALTH (daily graph maintenance)
+## Workflow 2: HEALTH (diagnosis before scoped repair)
 
-**When to use:** Daily upkeep, after edits, or when health score drops. This is the most common workflow.
+Read [integrity.md](references/integrity.md) before maintenance or creating cards.
 
-### Decision Logic
+1. Build a staged view or run read-only checks. Use graph health for links and enforce --check for strict YAML/schema validation.
+2. Separate missing targets, ambiguous links, no-incoming cards, isolated cards and reachability from hubs. Counts overlap; the health score is not an acceptance gate.
+3. Inspect current sources and prepare an explicit file manifest. Preserve original bytes and body content for mechanical changes. Never infer a business state from an unknown status.
+4. Apply only the reviewed repair scope. Do not mutate readonly archival paths. MOC generation preserves legacy/manual files unless an explicit managed block exists.
+5. Recheck changed metadata and links, then publish the completed batch through the vault transport. Verify remote delivery separately.
 
-```
-0. Run `cleanup.py <vault-dir> [schema.json]`; apply reported deterministic repairs before whole-file tools
-1. Run `graph.py health <vault-dir>` → check score
-2. If health < 90 → investigate:
-   a. broken_links > 0  → `graph.py fix <vault-dir> --apply`
-   b. orphans > 5       → connect orphans to hub files (see Workflow 4)
-   c. desc_coverage < 70% → add descriptions to files missing them
-3. Run `moc.py generate <vault-dir>` → regenerate indexes
-4. Run `engine.py decay <vault-dir>` → recalculate relevance + tiers
-5. Run `graph.py health <vault-dir>` → confirm improvement
-```
-
-### Thresholds & Action Triggers
-
-| Metric | Good | Action needed |
-|--------|------|---------------|
-| Health score | ≥90 | <90: investigate broken links, orphans |
-| Broken links | 0 | >0: `graph.py fix --apply` |
-| Orphan files | <5 | ≥5: connect to hubs (Workflow 4) |
-| Description coverage | ≥80% | <70%: add descriptions |
-| Stale cards (>90d) | <20% | >30%: `engine.py creative` to resurface |
-
-When `schema.raw_dirs` is configured, raw files remain navigable nodes but are
-excluded from these durable-card health thresholds. Their unresolved outgoing
-links are reported separately as informational `raw_broken_links`.
-
-### Commands
-
-```bash
-uv run scripts/graph.py health <vault-dir>           # health check
-uv run scripts/graph.py fix <vault-dir> --apply       # fix broken links
-uv run scripts/moc.py generate <vault-dir>            # regenerate MOCs
-uv run scripts/engine.py decay <vault-dir>            # decay cycle (Ebbinghaus)
-uv run scripts/engine.py decay <vault-dir> --dry-run  # preview decay changes
-uv run scripts/engine.py stats <vault-dir>            # tier distribution
-uv run scripts/engine.py creative 5 <vault-dir>       # resurface forgotten cards
-```
-
----
+The health orchestration command reports only; it does not automatically fix links, regenerate MOCs or change decay. Use uv run for all Python entry points so the declared YAML dependency is available.
 
 ## Workflow 3: CREATE / UPDATE (dedup-first, then link)
 
@@ -120,7 +86,7 @@ Pick the operation (full rules: `references/update-in-place.md`):
 - **ADD** — no existing card → create it (steps 1–5 below).
 - **NOOP** — already captured, unchanged → stop.
 - **UPDATE** — same subject, new enrichment → open the card, sharpen `description`, append a dated line under `## Log`, re-`touch`.
-- **SUPERSEDE** — new fact *contradicts* a current value → rewrite the current value (frontmatter field + top of description = "Compiled Truth"), move the OLD value to append-only `## History` (`- 2026-03→2026-06 · company: TDI Group`), set `updated:`. Whole card obsolete → `status: superseded` + `superseded_by: [[new-card]]`.
+- **SUPERSEDE** — new fact *contradicts* a current value → rewrite the current value (frontmatter field + top of description = "Compiled Truth"), move the OLD value to append-only `## History` (`- 2026-03→2026-06 · company: TDI Group`), set `updated:`. Whole card obsolete → `status: superseded` + `superseded_by: "[[new-card]]"`.
 
 Only when the operation is **ADD**, continue:
 
@@ -189,11 +155,11 @@ uv run scripts/graph.py health <vault-dir>          # verify improvement
 ### Phase 0: Script sequencing
 
 ```bash
-python3 scripts/orchestrate.py health <vault-dir>      # automated health workflow
-python3 scripts/orchestrate.py bootstrap <vault-dir>    # full bootstrap (one command)
+uv run scripts/orchestrate.py health <vault-dir>      # automated health workflow
+uv run scripts/orchestrate.py bootstrap <vault-dir>    # full bootstrap (one command)
 ```
 
-`health` runs: graph check > fix broken links > link cleanup > MOC > decay > verify.
+`health` runs graph and strict metadata checks only. It leaves cards and indexes unchanged; graph diagnostic reports may be written.
 `bootstrap` runs: enforce > cleanup > tags > dedup > swarm-links > MOC > verify.
 
 ### Phases 1-3: Agent judgment (no API keys)
@@ -202,17 +168,17 @@ The agent (you) does the judgment directly — read prepared data, decide, write
 
 ```bash
 # Phase 1: prep dedup clusters for YOUR review
-python3 scripts/orchestrate.py dedup-prepare <vault-dir>
+uv run scripts/orchestrate.py dedup-prepare <vault-dir>
 # -> writes .graph/dedup-review-input.json
 # -> YOU read clusters, mark approved=true, then: dedup.py --apply-manifest
 
 # Phase 2: prep domain catalogs for YOUR link suggestions
-python3 scripts/orchestrate.py link-prepare <vault-dir>
+uv run scripts/orchestrate.py link-prepare <vault-dir>
 # -> writes .graph/link-review-input.json
 # -> YOU read catalogs, suggest links per domain, write batch results
 
 # Phase 3: prep graph data for YOUR semantic analysis
-python3 scripts/orchestrate.py graph-prepare <vault-dir>
+uv run scripts/orchestrate.py graph-prepare <vault-dir>
 # -> writes .graph/graph-analysis-input.json
 # -> YOU analyze contradictions, missing links, stale hubs, write findings
 ```

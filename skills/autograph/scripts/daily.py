@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph daily — extract entities from daily memory files.
 No hardcoded project/company names. Pattern-based extraction only.

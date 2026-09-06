@@ -92,7 +92,7 @@ frontmatter/body conventions support this:
 |-----------------|---------|
 | `updated: YYYY-MM-DD` | Date a Compiled-Truth value last changed. Recency key for dedup merges (`updated > created > last_accessed`). |
 | `status: superseded` | Whole card retired. Must be present in the type's status enum. |
-| `superseded_by: [[card]]` | Pointer to the replacement card. |
+| `superseded_by: "[[card]]"` | String pointer to the replacement card. |
 | `## History` (body section) | Append-only log of old values, one dated line each: `- 2026-03→2026-06 · company: TDI Group`. Never edited or reordered. |
 
 Optional: `confidence: EXTRACTED | INFERRED | AMBIGUOUS` — certainty of a captured fact.

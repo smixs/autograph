@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 Ranked memory search over a vault — BM25 (sqlite3 FTS5) + link-graph rerank.
 

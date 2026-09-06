@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph enforce — validate and fix vault cards against schema.
 
@@ -19,11 +23,54 @@ from common import (
     walk_vault, rel_path, infer_domain, infer_type, IGNORE_DIRS,
     get_type_aliases, get_field_fixes, get_node_types, get_status_defaults,
     collect_duplicate_groups, collapse_repeated_description, cap_description,
-    get_description_max_chars,
+    get_description_max_chars, FrontmatterError,
 )
 
 ENFORCE_MAX_FILE_BYTES = 10 * 1024 * 1024
 # cleanup.py owns bounded-memory repair; enforce handles ordinary-sized cards.
+
+
+def validate_cards(vault_dir: Path, schema: dict, paths: list[str] | None = None) -> list[dict]:
+    """Read-only gate for a completed card batch; never applies inferred values."""
+    errors = []
+    files = [vault_dir / p for p in paths] if paths is not None else walk_vault(vault_dir)
+    for path in files:
+        rp = rel_path(path, vault_dir)
+        if not path.resolve().is_relative_to(vault_dir.resolve()):
+            errors.append({'path': rp, 'issue': 'path outside vault'})
+            continue
+        try:
+            fields, _, _ = parse_frontmatter(path.read_text(), strict=True)
+        except (OSError, UnicodeError, FrontmatterError) as exc:
+            errors.append({'path': rp, 'issue': type(exc).__name__})
+            continue
+        if fields is None:
+            errors.append({'path': rp, 'issue': 'missing frontmatter'})
+            continue
+        kind = fields.get('type', '')
+        if not isinstance(kind, str):
+            errors.append({'path': rp, 'issue': 'type must be a string'})
+            continue
+        kind = get_type_aliases(schema).get(kind, kind)
+        definition = schema['node_types'].get(kind)
+        if definition is None:
+            errors.append({'path': rp, 'issue': 'unknown type'})
+            continue
+        for key in definition.get('required', []):
+            if not fields.get(key):
+                errors.append({'path': rp, 'issue': f'missing {key}'})
+        status = fields.get('status')
+        if 'status' in fields and not isinstance(status, str):
+            errors.append({'path': rp, 'issue': 'status must be a string'})
+        elif status and status not in definition.get('status', [status]):
+            errors.append({'path': rp, 'issue': 'unknown status'})
+        if 'description' in fields and not isinstance(fields['description'], str):
+            errors.append({'path': rp, 'issue': 'description must be a string'})
+        for key in ('related', 'tags'):
+            if key in fields and (not isinstance(fields[key], list) or
+                                  any(not isinstance(v, str) for v in fields[key])):
+                errors.append({'path': rp, 'issue': f'{key} must be a list of strings'})
+    return errors
 
 
 def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
@@ -53,13 +100,23 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
             continue
         eligible_files.append(md)
 
-        fields, body, orig_lines = parse_frontmatter(content)
+        try:
+            fields, body, orig_lines = parse_frontmatter(content, strict=True)
+        except FrontmatterError as exc:
+            stats['needs_review'] += 1
+            stats['review_items'].append(f"{rp}: {exc}")
+            continue
         if fields is None:
             stats['no_fm'] += 1
             continue
 
         changed = False
         issues = []
+        if any(key in fields and not isinstance(fields[key], str)
+               for key in ('type', 'status', 'description')):
+            stats['needs_review'] += 1
+            stats['review_items'].append(f"{rp}: invalid scalar field type; left unchanged")
+            continue
 
         # --- TYPE ---
         t = fields.get('type', '')
@@ -87,10 +144,9 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
             cur_s = fields['status']
         # Validate
         if valid_s and cur_s and cur_s not in valid_s:
-            # Fall back to first valid status for this type
-            fields['status'] = valid_s[0]
-            changed = True
-            stats['fixes']['status_remap'] += 1
+            stats['needs_review'] += 1
+            stats['review_items'].append(f"{rp}: unknown status; left unchanged")
+            continue
         if not cur_s and valid_s:
             # Use status_defaults from schema, or first valid status
             defaults = get_status_defaults(schema)
@@ -129,7 +185,7 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
 
         # --- DESCRIPTION ---
         desc = fields.get('description', '')
-        if not desc:
+        if not desc and 'description' in tdef.get('required', []):
             first = body.strip().split('\n')[0].strip().lstrip('#').strip() if body.strip() else ''
             if first and 10 < len(first) < 200:
                 fields['description'] = first
@@ -137,7 +193,7 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
                 stats['fixes']['desc_inferred'] += 1
             else:
                 issues.append('missing description')
-        elif isinstance(desc, str):
+        elif desc and isinstance(desc, str):
             if len(desc) > 20:
                 collapsed = collapse_repeated_description(desc)
                 if len(collapsed) < len(desc.strip()):
@@ -152,7 +208,7 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
 
         # --- TAGS ---
         tags = fields.get('tags', '')
-        if not tags or (isinstance(tags, list) and len(tags) == 0):
+        if 'tags' in tdef.get('required', []) and (not tags or (isinstance(tags, list) and len(tags) == 0)):
             issues.append('missing tags')
 
         # --- SYSTEM FIELDS ---
@@ -172,9 +228,8 @@ def enforce(vault_dir: Path, schema: dict, apply=False, verbose=False):
             stats['fixed'] += 1
         if issues:
             stats['needs_review'] += 1
-            if verbose:
-                for i in issues:
-                    stats['review_items'].append(f"{rp}: {i}")
+            for i in issues:
+                stats['review_items'].append(f"{rp}: {i}")
         if not changed and not issues:
             stats['valid'] += 1
 
@@ -218,6 +273,14 @@ def main():
     except ValueError as error:
         print(f"Error: {error}", file=sys.stderr)
         sys.exit(2)
+    if '--check' in args:
+        paths = None
+        if '--manifest' in args:
+            manifest = json.loads(Path(args[args.index('--manifest') + 1]).read_text())
+            paths = [item['path'] for item in manifest['files'] if item['path'].endswith('.md')]
+        errors = validate_cards(vault_dir, schema, paths)
+        print(json.dumps({'mode': 'check', 'errors': errors}, ensure_ascii=False, indent=2))
+        sys.exit(1 if errors else 0)
     stats, dupes = enforce(vault_dir, schema, apply=apply, verbose=verbose)
     score = health_score(stats, dupes)
 

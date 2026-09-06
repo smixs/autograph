@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph self-contained tests — uses temp fixtures, no real vault needed.
 Runs ~40 tests covering common.py functions + all script CLIs + edge cases.
@@ -165,7 +169,7 @@ VAULT_FILES = {
         "domain: crm\n"
         "tags: [partner, dev]\n"
         "description: Bob Smith, lead developer\n"
-        "telegram: @bobdev\n"
+        "telegram: '@bobdev'\n"
         "email: bob@example.com\n"
         "company: DevCorp\n"
         "tier: active\n"
@@ -854,7 +858,7 @@ def main():
         test("enforce shows compliance score", 'SCHEMA COMPLIANCE' in out, out[:300])
 
         # enforce regression: `superseded` status must survive when it's in the enum,
-        # but be remapped when it isn't (proves why the schema change is mandatory).
+        # and remain untouched for review when it is absent from the schema.
         _schema_cache.clear()
         sup_vault = tmp / 'superseded-vault'
         sup_vault.mkdir(parents=True, exist_ok=True)
@@ -870,7 +874,7 @@ def main():
         kept = (sup_vault / 'old.md').read_text(encoding="utf-8")
         test("enforce keeps status: superseded when in enum",
              'status: superseded' in kept, kept[:200])
-        # control: schema WITHOUT superseded → remapped to first valid status (active)
+        # control: schema WITHOUT superseded must not invent an active state.
         _schema_cache.clear()
         ctrl_vault = tmp / 'superseded-control'
         ctrl_vault.mkdir(parents=True, exist_ok=True)
@@ -882,8 +886,8 @@ def main():
         code, out, err = run([py, str(SCRIPTS_DIR / 'enforce.py'),
                               str(ctrl_vault), str(ctrl_schema), '--apply'])
         remapped = (ctrl_vault / 'old.md').read_text(encoding="utf-8")
-        test("enforce remaps superseded when NOT in enum",
-             'status: superseded' not in remapped and 'status: active' in remapped,
+        test("enforce preserves unknown superseded for review",
+             remapped == card,
              remapped[:200])
 
         # A schema cap is opt-in. Ordinary long descriptions survive when it
@@ -1854,7 +1858,7 @@ def main():
         )
         extra_note.write_text(
             "---\n"
-            f"description: {long_desc}\n"
+            f"description: {json.dumps(long_desc)}\n"
             "tags: [base, extra]\n"
             "---\n"
             "# Extra\n\n"

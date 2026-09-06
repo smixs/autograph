@@ -5,7 +5,7 @@
 ## Phase 1: Discover (scan vault, find natural patterns)
 
 ```bash
-python3 scripts/discover.py <vault-dir> --verbose > /tmp/discovery.json
+uv run scripts/discover.py <vault-dir> --verbose > /tmp/discovery.json
 ```
 
 Outputs JSON: all frontmatter field values, folder structure, wikilink patterns, tag frequency. This is raw data — not yet a schema.
@@ -17,7 +17,7 @@ Outputs JSON: all frontmatter field values, folder structure, wikilink patterns,
 ### Step 2A: Script baseline
 
 ```bash
-python3 scripts/generate_schema.py /tmp/discovery.json /tmp/schema-draft.json
+uv run scripts/generate_schema.py /tmp/discovery.json /tmp/schema-draft.json
 ```
 
 Produces a mechanical draft from enum data. For vaults with existing frontmatter this may be sufficient. For vaults without frontmatter (imports, fresh vaults, mixed dumps) the script output will be nearly empty — this is expected.
@@ -31,7 +31,7 @@ Uses a map-reduce architecture: `swarm_prepare.py` splits vault into non-overlap
 #### Preparation
 
 ```bash
-python3 scripts/swarm_prepare.py <vault-dir> /tmp/discovery.json [--budget 50000]
+uv run scripts/swarm_prepare.py <vault-dir> /tmp/discovery.json [--budget 50000]
 ```
 
 Walks vault, estimates tokens per file (~4 bytes/token), greedy bin-packs into batches of ~50K tokens. Writes manifests to `.graph/swarm/manifests/batch-NNN.json`. Each batch contains a non-overlapping file list + seed types extracted from discovery + generate_schema.
@@ -58,7 +58,7 @@ JSONL format per line:
 #### Consolidation
 
 ```bash
-python3 scripts/swarm_reduce.py prepare <vault-dir> [discovery.json] [draft-schema.json]
+uv run scripts/swarm_reduce.py prepare <vault-dir> [discovery.json] [draft-schema.json]
 ```
 
 Reads all `.graph/swarm/classifications/*.jsonl`, counts type/domain frequencies, identifies novel types (not in seed), writes `consolidation.json` for Wave 2.
@@ -72,7 +72,7 @@ Save output to `/tmp/wave2-schema.json`.
 #### Finalization
 
 ```bash
-python3 scripts/swarm_reduce.py finalize /tmp/wave2-schema.json schema.json
+uv run scripts/swarm_reduce.py finalize /tmp/wave2-schema.json schema.json
 ```
 
 Validates the schema: all 11 sections present, each node_type has description/required/status, aliases point to real types, status_order covers all statuses, 3-15 types (sanity check). If valid → writes schema.json. If invalid → saves draft to `.graph/swarm/schema-draft-invalid.json` with errors.
@@ -116,12 +116,12 @@ Present schema to user. They approve, adjust, or reject. Never auto-apply a gene
 ## Phase 4: Bootstrap + Enforce (frontmatter + structural fields)
 
 ```bash
-python3 scripts/cleanup.py <vault-dir> schema.json        # bounded-memory dry run
-python3 scripts/cleanup.py <vault-dir> schema.json --apply # repair before whole-file tools
-python3 scripts/engine.py init <vault-dir> --dry-run     # bootstrap bare files
-python3 scripts/engine.py init <vault-dir>                # apply
-python3 scripts/enforce.py <vault-dir> schema.json        # dry run
-python3 scripts/enforce.py <vault-dir> schema.json --apply # apply
+uv run scripts/cleanup.py <vault-dir> schema.json        # bounded-memory dry run
+uv run scripts/cleanup.py <vault-dir> schema.json --apply # repair before whole-file tools
+uv run scripts/engine.py init <vault-dir> --dry-run     # bootstrap bare files
+uv run scripts/engine.py init <vault-dir>                # apply
+uv run scripts/enforce.py <vault-dir> schema.json        # dry run
+uv run scripts/enforce.py <vault-dir> schema.json --apply # apply
 ```
 
 Cleanup repairs repeated descriptions left by historical writer bugs while
@@ -134,8 +134,8 @@ missing system fields. Enforce skips files over 10 MiB so cleanup must run first
 ## Phase 5: Link Cleanup (remove phantom wikilinks)
 
 ```bash
-python3 scripts/link_cleanup.py <vault-dir>              # dry run
-python3 scripts/link_cleanup.py <vault-dir> --apply
+uv run scripts/link_cleanup.py <vault-dir>              # dry run
+uv run scripts/link_cleanup.py <vault-dir> --apply
 ```
 
 Cleans historical phantom wikilinks from `## Related` sections. Checks every link target against real vault stems. Broken links are removed; if all links in a section are broken, the section is deleted. Body links outside `## Related` are never touched. Report written to `.graph/link-cleanup-report.json`.
@@ -145,8 +145,8 @@ Run BEFORE tag/link enrichment so the enricher works on clean files.
 ## Phase 6: Tag Enrich (tags via OpenRouter API)
 
 ```bash
-OPENROUTER_API_KEY=sk-... python3 scripts/enrich.py tags <vault-dir>           # dry run
-OPENROUTER_API_KEY=sk-... python3 scripts/enrich.py tags <vault-dir> --apply   # apply
+OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py tags <vault-dir>           # dry run
+OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py tags <vault-dir> --apply   # apply
 ```
 
 Collects seed tags from vault, finds files with empty/missing tags, batches them into API calls via OpenRouter (default model: `google/gemini-3-flash-preview`). LLM assigns 1-5 lowercase hyphenated tags per file, strongly preferring seed tags. Results cached in `.graph/enrich/tags/`. Concurrent via `ThreadPoolExecutor` (default 3 workers).
@@ -156,8 +156,8 @@ Options: `--budget N` (token budget per batch), `--model MODEL`, `--force` (re-p
 ## Phase 7: Deduplicate
 
 ```bash
-python3 scripts/dedup.py <vault-dir>              # report
-python3 scripts/dedup.py <vault-dir> --apply       # merge + trash
+uv run scripts/dedup.py <vault-dir>              # report
+uv run scripts/dedup.py <vault-dir> --apply       # merge + trash
 ```
 
 Finds same-slug files in different folders. Picks canonical by content richness (primary) + path depth (tiebreaker). Merges unique content, redirects wikilinks, moves extras to `.trash/`. Run BEFORE link enrichment so links point to canonical files.
@@ -167,9 +167,9 @@ Finds same-slug files in different folders. Picks canonical by content richness 
 **USE `swarm-links`, NOT `links`.** This is the proven approach.
 
 ```bash
-OPENROUTER_API_KEY=sk-... python3 scripts/enrich.py swarm-links <vault-dir>           # dry run
-OPENROUTER_API_KEY=sk-... python3 scripts/enrich.py swarm-links <vault-dir> --apply   # apply
-OPENROUTER_API_KEY=sk-... python3 scripts/enrich.py swarm-links <vault-dir> --apply --force  # re-enrich all files
+OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py swarm-links <vault-dir>           # dry run
+OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py swarm-links <vault-dir> --apply   # apply
+OPENROUTER_API_KEY=sk-... uv run scripts/enrich.py swarm-links <vault-dir> --apply --force  # re-enrich all files
 ```
 
 ### How it works
@@ -233,25 +233,25 @@ This raised match rate from 52% to 81.6% in testing.
 2. `swarm-links . --apply` — apply to files with <2 links
 3. `swarm-links . --apply --force` — re-enrich ALL files (second pass catches stragglers)
 4. `link_cleanup.py . --apply` — clean any broken links after enrichment
-5. `graph.py health .` — verify health score improved
+5. `graph.py health .` — inspect broken/ambiguous links and orphan, isolated and unreachable sets; do not use a scalar score as acceptance
 
 ## Phase 9: MOC Generation
 
 ```bash
-python3 scripts/moc.py generate <vault-dir>
-python3 scripts/moc.py generate <vault-dir> --domain work
+uv run scripts/moc.py generate <vault-dir>
+uv run scripts/moc.py generate <vault-dir> --domain work
 ```
 
-Generates index files per domain with wikilinks grouped by type and sorted by status.
+Generates index files per domain with wikilinks grouped by type and sorted by status. Existing MOCs without explicit managed markers are preserved. For a legacy MOC, identify the generated section and protect handwritten content before introducing a managed block; see [integrity.md](integrity.md).
 
 ## Phase 10: Verify
 
 ```bash
-python3 scripts/graph.py health <vault-dir>
-python3 scripts/enforce.py <vault-dir> schema.json
+uv run scripts/enforce.py <staged-vault-dir> schema.json --check --manifest <repair-manifest.json>
+uv run scripts/graph.py health <staged-vault-dir>
 ```
 
-Target: 90+/100 on both scores.
+The manifest lists the completed change scope. Strict metadata validation must pass for those files. Review missing and ambiguous targets, no-incoming cards, isolated cards and reachability from hubs as separate findings; the sets overlap. Include existing linked cards in the staged view. Resolve findings caused by this change and record any retained historical or read-only findings explicitly. A numeric health score does not replace these checks or prove factual accuracy. Verify publication separately from content validation.
 
 ## Proven Results (production run, 864 files)
 
