@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph moc — generate Maps of Content from vault cards.
 All domain/type/status logic from schema.json. No hardcoded values.
@@ -158,6 +162,30 @@ def generate_moc(domain: str, cards: list, schema: dict) -> str:
     return '\n'.join(lines)
 
 
+MANAGED_START = '<!-- autograph:moc:start -->'
+MANAGED_END = '<!-- autograph:moc:end -->'
+
+
+def save_moc(path: Path, generated: str) -> bool:
+    """Regenerate only an explicitly owned block; preserve legacy/manual text."""
+    fm, body, lines = parse_frontmatter(generated)
+    managed = f'{MANAGED_START}\n{body}\n{MANAGED_END}'
+    if path.exists():
+        original = path.read_text()
+        if original.count(MANAGED_START) != 1 or original.count(MANAGED_END) != 1:
+            print(f'  Preserved existing MOC without managed markers: {path.name}')
+            return False
+        before, rest = original.split(MANAGED_START, 1)
+        _, after = rest.split(MANAGED_END, 1)
+        text = before + managed + after
+    else:
+        # Keep frontmatter at the beginning of the note, outside the body block.
+        prefix = '---\n' + '\n'.join(lines) + '\n---\n\n' if fm is not None else ''
+        text = prefix + MANAGED_START + '\n' + body + '\n' + MANAGED_END + '\n'
+    path.write_text(text)
+    return True
+
+
 def main():
     args = sys.argv[1:]
     if not args or args[0] in ('-h', '--help'):
@@ -195,7 +223,8 @@ def main():
             cards = data.get(domain_filter, [])
             moc_text = generate_moc(domain_filter, cards, schema)
             outpath = moc_dir / f'MOC-{domain_filter}.md'
-            outpath.write_text(moc_text)
+            if not save_moc(outpath, moc_text):
+                return
             link_count = moc_text.count('[[')
             total_links += link_count
             print(f"✓ Generated: {outpath.relative_to(vault_dir)}")
@@ -206,7 +235,8 @@ def main():
                     continue
                 moc_text = generate_moc(domain, cards, schema)
                 outpath = moc_dir / f'MOC-{domain}.md'
-                outpath.write_text(moc_text)
+                if not save_moc(outpath, moc_text):
+                    continue
                 link_count = moc_text.count('[[')
                 total_links += link_count
                 print(f"✓ Generated: {outpath.relative_to(vault_dir)}")

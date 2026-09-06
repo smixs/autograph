@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph enrich — tag and link enrichment via OpenRouter API.
 
-Replaces agent swarms with direct API calls. Zero external dependencies (stdlib only).
+Replaces agent swarms with direct API calls. Uses PyYAML via uv for metadata and urllib for API calls.
 
 Usage:
     enrich.py tags <vault-dir> [--apply] [--budget 50000] [--model MODEL] [--force] [--delay 0.5] [--workers 3]
@@ -23,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (walk_vault, parse_frontmatter, write_frontmatter,
-                    rel_path, extract_wikilinks, load_schema, get_ignore_tags)
+                    rel_path, extract_wikilinks, load_schema, get_ignore_tags, FrontmatterError)
 from swarm_prepare import estimate_tokens, bin_pack_batches, top_folder
 
 # ─── CONSTANTS ────────────────────────────────────────────
@@ -276,7 +280,11 @@ def apply_tags(vault_dir: Path, results_dir: Path):
                 continue
 
             content = path.read_text(errors='replace')
-            fm, body, lines = parse_frontmatter(content)
+            try:
+                fm, body, lines = parse_frontmatter(content, strict=True)
+            except FrontmatterError:
+                print(f"  Skipped invalid metadata: {item['path']}", file=sys.stderr)
+                continue
             if fm is None:
                 # Create frontmatter
                 fm = {'tags': tags}

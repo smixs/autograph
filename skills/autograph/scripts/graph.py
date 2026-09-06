@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph graph — vault graph analysis, link repair, backlinks, orphans.
 
@@ -66,14 +70,30 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
         card_type = fm.get('type', 'unknown')
 
         outgoing = []
-        links = extract_wikilinks(body if body else content)
+        links = extract_wikilinks(body)
+        for key in ('related', 'parent', 'hub', 'superseded_by'):
+            values = fm.get(key, [])
+            if isinstance(values, str):
+                values = [values] if values else []
+            if isinstance(values, list):
+                for value in values:
+                    if isinstance(value, str):
+                        target = value.strip().removeprefix('[[').removesuffix(']]').split('|')[0]
+                        if target and not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target):
+                            links.append((target, target))
+        seen = set()
         for target, display in links:
             # Skip embeds
             if any(target.lower().endswith(ext) for ext in EMBED_EXTS):
                 continue
             target_clean = normalize_link_target(target)
-            resolved, _ = resolve_link_target(target_clean, link_index)
+            resolved, _ = resolve_link_target(target_clean, link_index, source=rp_noext)
+            if resolved == rp_noext or target_clean in seen:
+                continue
+            seen.add(target_clean)
             if resolved:
+                if resolved in outgoing:
+                    continue
                 outgoing.append(resolved)
                 all_links.append((rp_noext, target_clean, resolved))
             else:
@@ -107,6 +127,15 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
 
     orphans = [p for p, n in card_nodes.items()
                if not n['incoming'] and not is_hub_path(p)]
+    isolated = [p for p in orphans if not card_nodes[p]['outgoing']]
+    reachable = {p for p in nodes if is_hub_path(p)}
+    pending = list(reachable)
+    while pending:
+        for target in nodes[pending.pop()]['outgoing']:
+            if target in nodes and target not in reachable:
+                reachable.add(target)
+                pending.append(target)
+    unreachable = [p for p in card_nodes if p not in reachable and not is_hub_path(p)]
     dead_ends = [p for p, n in card_nodes.items() if not n['outgoing'] and n['incoming']]
     desc_count = sum(1 for n in card_nodes.values() if n['has_description'])
     desc_ratio = desc_count / card_total if card_total else 1.0
@@ -156,6 +185,8 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
             'card_links': card_links,
             'avg_links_per_card': round(card_avg_links, 2),
             'orphans': len(orphans),
+            'isolated': len(isolated),
+            'unreachable_from_hubs': len(unreachable),
             'dead_ends': len(dead_ends),
             'broken_links': len(broken_links),
             'raw_broken_links': len(raw_broken_links),
@@ -166,6 +197,8 @@ def build_graph(vault_dir: Path, schema: dict) -> dict:
         'domains': dict(domain_stats),
         'nonstandard_domain_list': {k: v[:10] for k, v in nonstandard_domains.items()},
         'orphan_list': sorted(orphans),
+        'isolated_list': sorted(isolated),
+        'unreachable_list': sorted(unreachable),
         'dead_end_list': sorted(dead_ends),
         'broken_link_list': [{'source': s, 'target': t} for s, t in broken_links],
         'raw_broken_link_list': [{'source': s, 'target': t} for s, t in raw_broken_links],

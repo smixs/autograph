@@ -59,7 +59,7 @@ another), don't delete it — mark it:
 
 ```yaml
 status: superseded
-superseded_by: [[replacement-card]]
+superseded_by: "[[replacement-card]]"
 ```
 
 Both `superseded` (in the type's status enum) and `superseded_by` must exist in your

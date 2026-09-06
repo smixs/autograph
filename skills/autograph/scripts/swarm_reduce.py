@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph swarm_reduce — consolidate Wave 1 classifications and validate Wave 2 schema.
 
@@ -7,8 +11,8 @@ Two commands:
   finalize — validate Wave 2 agent output, write schema.json
 
 Usage:
-  python3 swarm_reduce.py prepare <vault-dir> [discovery.json] [draft-schema.json]
-  python3 swarm_reduce.py finalize <wave2-output.json> [output-schema.json]
+  uv run swarm_reduce.py prepare <vault-dir> [discovery.json] [draft-schema.json]
+  uv run swarm_reduce.py finalize <wave2-output.json> [output-schema.json]
 """
 
 import json

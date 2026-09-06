@@ -18,7 +18,7 @@ English · [Русский](./README.ru.md)
 
 ---
 
-**autograph** is a memory engine for [Obsidian](https://obsidian.md) vaults that AI agents write to. You define the taxonomy once in `schema.json` — card types, folders, allowed statuses, how fast each kind of knowledge decays. From there the engine places new cards, repairs wiki-links, merges duplicate entities, forgets what you stopped touching, and scores the vault's health. It's plain Markdown you own, not a hosted database — the same files stay a human-readable second brain. The scripts are Python stdlib only, zero external dependencies, 299 tests.
+**autograph** is a memory engine for [Obsidian](https://obsidian.md) vaults that AI agents write to. You define the taxonomy once in `schema.json` — card types, folders, allowed statuses, how fast each kind of knowledge decays. From there the engine places new cards, repairs wiki-links, merges duplicate entities, forgets what you stopped touching, and scores the vault's health. It's plain Markdown you own, not a hosted database — the same files stay a human-readable second brain. The scripts are Python with PyYAML for validated metadata, 299 tests.
 
 The problem it solves: an always-on agent drops notes into your vault every day — voice transcripts, meetings, contacts, ideas. A month later you have 800 files, broken links, three cards for the same person, and no one remembers if `status: ongoing` means `status: active`. autograph is the layer that keeps that in order without you babysitting it.
 
@@ -91,13 +91,13 @@ Karpathy answered *who* maintains the wiki — the LLM. autograph answers whethe
 | Typed schema + decay | Yes (schema-as-code, Ebbinghaus) | Partial | No |
 | Dedup + link repair + health score | Yes | No | No |
 | Runtime | Any agent (skills.sh) | SDK / API | MCP clients |
-| External deps | None (Python stdlib) | Cloud account | MCP server |
+| External deps | PyYAML (resolved by uv) | Cloud account | MCP server |
 
 ## Use cases
 
 | Scenario | Commands | Why |
 |---|---|---|
-| **Audit someone's vault** | `discover.py` → `graph.py health` → `graph.py fix --apply` | See the state before touching anything |
+| **Audit someone's vault** | `discover.py` → `graph.py health` → `enforce.py --check` | Inspect links and metadata before preparing a scoped repair |
 | **Bootstrap an empty or chaotic vault** | `/autograph:research <vault>` | Q&A + explorer-agent swarm → schema draft → your approval |
 | **Record a card that stays linked** | Workflow 3 in `SKILL.md`: dedup-first → type → `## Related` (hub + 2 siblings) → `touch` | The skill won't finish until the card is linked — orphans are dead knowledge |
 | **A fact changed** | dedup-first lookup → SUPERSEDE: rewrite the value, old one → `## History` | One card per subject, with an audit trail, instead of a duplicate |
@@ -145,14 +145,13 @@ A touch promotes one tier at a time: `archive → cold → warm → active`. `la
 
 ## Scheduling
 
-Run decay + health nightly, dedup + MOC weekly. Any scheduler works; here's plain cron:
+Schedule diagnostics first. Mutation jobs require an explicit scope, archive exclusions and coordination with the vault's writers. A read-only card audit can use plain cron:
 
 ```cron
-0 3 * * *  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/engine.py decay . && uv run ~/dev/autograph/skills/autograph/scripts/graph.py health .
-0 4 * * 0  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/dedup.py . --apply && uv run ~/dev/autograph/skills/autograph/scripts/moc.py generate .
+0 3 * * *  cd /path/to/vault && uv run ~/dev/autograph/skills/autograph/scripts/orchestrate.py health .
 ```
 
-Targets: health ≥ 90, broken_links = 0, description coverage ≥ 80%, stale (>90d) < 20%.
+Accept repairs by validating the changed metadata and resolving or explicitly recording each link finding. The health score and stale-card rate are diagnostic signals, not proof that the vault is correct.
 
 ## What's inside
 
@@ -165,21 +164,22 @@ autograph/
 │   ├── SKILL.md             # workflows for the model (create/update, health, daily→cards)
 │   ├── schema.example.json  # starting template — copy and customize
 │   ├── references/          # bootstrap, card templates, update-in-place, daily processor
-│   ├── scripts/             # 18 engine scripts (Python stdlib only)
+│   ├── scripts/             # 18 engine scripts (Python + PyYAML)
 │   └── tests/               # 299 self-contained tests
 └── LICENSE
 ```
 
-**Requirements:** Python 3.11+, [`uv`](https://github.com/astral-sh/uv), an Obsidian-style vault (folder of `.md` with YAML frontmatter). Optional `OPENROUTER_API_KEY` for tag/link enrichment. No `pip install` — stdlib only.
+**Requirements:** Python 3.11+, [`uv`](https://github.com/astral-sh/uv), an Obsidian-style vault (folder of `.md` with YAML frontmatter). Optional `OPENROUTER_API_KEY` for tag/link enrichment. PyYAML is resolved by uv; no manual `pip install` is needed.
 
 ```bash
 cd skills/autograph && uv run tests/test_autograph.py   # 299/299
+uv run tests/test_integrity.py                         # 20 integrity regressions
 ```
 
 ## FAQ
 
 ### What is autograph?
-autograph is a schema-as-code memory layer for Obsidian vaults written to by AI agents. One `schema.json` defines card types, folders, statuses, and decay rates; the engine enforces placement, repairs wiki-links, merges duplicate entities, applies Ebbinghaus-style decay, and scores vault health. Python stdlib only, 299 tests, MIT.
+autograph is a schema-as-code memory layer for Obsidian vaults written to by AI agents. One `schema.json` defines card types, folders, statuses, and decay rates; the engine enforces placement, repairs wiki-links, merges duplicate entities, applies Ebbinghaus-style decay, and scores vault health. Python + PyYAML, 299 tests, MIT.
 
 ### How is it different from mem0, Letta, or basic-memory?
 autograph stores memory as plain Markdown in your own Obsidian vault instead of a hosted database — no API, no vendor lock-in, and the files stay a human-readable PKM. It adds typed schema enforcement, entity dedup, link repair, and memory decay that those tools don't.

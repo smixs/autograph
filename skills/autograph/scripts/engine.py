@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph engine — decay, touch, creative recall, stats.
 All decay config from schema.json. No hardcoded rates or thresholds.
@@ -248,7 +252,7 @@ def cmd_init(vault_dir: Path, schema: dict, dry_run: bool = False):
             content = md.read_text(errors='replace')
         except Exception:
             continue
-        fm, body, _ = parse_frontmatter(content)
+        fm, body, _ = parse_frontmatter(content, strict=True)
         if fm is not None:
             continue  # already has frontmatter
 

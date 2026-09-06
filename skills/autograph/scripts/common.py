@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph common — shared utilities for all scripts.
 Single source of truth. NO hardcoded domains, types, statuses, paths.
@@ -5,6 +9,9 @@ Everything reads from schema.json.
 """
 
 import re
+import posixpath
+import unicodedata
+import yaml
 import json
 from pathlib import Path
 from datetime import date, datetime
@@ -221,148 +228,73 @@ def get_entity_extraction_config(schema: dict) -> dict:
 
 
 # ─── FRONTMATTER ───────────────────────────────────────────
-def parse_frontmatter(content: str) -> tuple[dict, str, list[str]]:
-    """Parse YAML frontmatter from markdown content.
-    Returns: (fields_dict, body_after_fm, original_fm_lines)
-    If no frontmatter: (None, full_content, [])
+class FrontmatterError(ValueError):
+    """Invalid metadata; error messages deliberately omit document contents."""
+
+
+class FrontmatterLoader(yaml.SafeLoader):
+    # Keep dates textual while preserving actual YAML scalar/list/map types.
+    def construct_mapping(self, node, deep=False):
+        result = {}
+        for key_node, value_node in node.value:
+            if key_node.tag == 'tag:yaml.org,2002:merge':
+                raise FrontmatterError('YAML merge keys require explicit resolution before mutation')
+            key = self.construct_object(key_node, deep=deep)
+            if not isinstance(key, str) or key in result:
+                raise FrontmatterError(f"Invalid or duplicate YAML key at line {key_node.start_mark.line + 1}")
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
+
+FrontmatterLoader.add_constructor('tag:yaml.org,2002:timestamp',
+                                  FrontmatterLoader.construct_scalar)
+
+
+def load_frontmatter_yaml(raw: str) -> dict:
+    try:
+        fields = yaml.load(raw, Loader=FrontmatterLoader)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, 'problem_mark', None)
+        location = f" at line {mark.line + 1}" if mark else ""
+        raise FrontmatterError("Invalid YAML frontmatter" + location) from None
+    if fields is None or fields == '':
+        return {}
+    if not isinstance(fields, dict):
+        raise FrontmatterError("Frontmatter must be a mapping")
+    return {key: '' if value is None else value for key, value in fields.items()}
+
+
+def parse_frontmatter(content: str, strict: bool = False) -> tuple[dict, str, list[str]]:
+    """Read actual YAML; strict mutations reject malformed metadata.
+
+    Read-only callers retain the original document as body when YAML is invalid.
+    They must not interpret that result as permission to replace its metadata.
     """
-    content = content.replace('\r\n', '\n').replace('\r', '\n')
-    m = re.match(r'^---\n(.*?)\n---\n?(.*)', content, re.DOTALL)
+    normalized = content.replace('\r\n', '\n').replace('\r', '\n')
+    m = re.match(r'^---\n(.*?)\n---(?:\n|$)(.*)', normalized, re.DOTALL)
     if not m:
+        if strict and normalized.startswith('---\n'):
+            raise FrontmatterError("Unclosed frontmatter")
         return None, content, []
-
-    raw_lines = m.group(1).split('\n')
-    body = m.group(2)
-    fields = {}
-    multiline_key = None
-    multiline_mode = None  # fold | literal | list | pending
-    multiline_sep = ' '  # >- fold (space), |- literal (newline)
-
-    for line in raw_lines:
-        stripped = line.strip()
-        indented = line.startswith('  ') or line.startswith('\t')
-
-        # Multi-line continuation
-        if multiline_key and indented:
-            if multiline_mode == 'pending':
-                if stripped.startswith('- '):
-                    multiline_mode = 'list'
-                    fields[multiline_key] = []
-                else:
-                    multiline_mode = 'fold'
-                    multiline_sep = ' '
-                    fields[multiline_key] = ''
-
-            if multiline_mode == 'list':
-                item = stripped[2:].strip() if stripped.startswith('- ') else stripped
-                if item:
-                    fields[multiline_key].append(item.strip("'\""))
-            else:
-                prev = fields.get(multiline_key, '') or ''
-                fields[multiline_key] = (prev + multiline_sep + stripped).strip()
-            continue
-
-        if multiline_key and not indented:
-            if fields.get(multiline_key) is None:
-                fields[multiline_key] = ''
-            multiline_key = None
-            multiline_mode = None
-            multiline_sep = ' '
-
-        if not stripped or stripped.startswith('#'):
-            continue
-
-        if ':' not in stripped:
-            continue
-
-        key, _, val = stripped.partition(':')
-        key = key.strip()
-        val = val.strip()
-
-        if val in ('>-', '>'):
-            multiline_key = key
-            multiline_mode = 'fold'
-            multiline_sep = ' '
-            fields[key] = ''
-            continue
-        if val in ('|-', '|'):
-            multiline_key = key
-            multiline_mode = 'literal'
-            multiline_sep = '\n'
-            fields[key] = ''
-            continue
-        if val.startswith('>-') or val.startswith('>'):
-            multiline_key = key
-            multiline_mode = 'fold'
-            multiline_sep = ' '
-            fields[key] = val.lstrip('>-').strip()
-            continue
-        if val.startswith('|-') or val.startswith('|'):
-            multiline_key = key
-            multiline_mode = 'literal'
-            multiline_sep = '\n'
-            fields[key] = val.lstrip('|-').strip()
-            continue
-        if val == '':
-            multiline_key = key
-            multiline_mode = 'pending'
-            multiline_sep = ' '
-            fields[key] = None
-            continue
-
-        if val.startswith('[') and val.endswith(']'):
-            items = [x.strip().strip("'\"") for x in val[1:-1].split(',') if x.strip()]
-            fields[key] = items
-        else:
-            fields[key] = val.strip("'\"")
-
-    if multiline_key and fields.get(multiline_key) is None:
-        fields[multiline_key] = ''
-
-    return fields, body, raw_lines
+    try:
+        fields = load_frontmatter_yaml(m.group(1))
+    except FrontmatterError:
+        if strict:
+            raise
+        return None, content, []
+    return fields, m.group(2), m.group(1).split('\n')
 
 
 def write_frontmatter(fields: dict, original_lines: list[str]) -> str:
-    """Rebuild frontmatter, preserving original order, updating values, appending new.
-    Handles multiline YAML values (>-, |-, >, |) — when a key is rewritten,
-    its continuation lines are skipped to prevent duplication."""
-    written = set()
-    out = []
-    skip_continuation = False
-
-    for line in original_lines:
-        stripped = line.strip()
-        indented = line.startswith('  ') or line.startswith('\t')
-        if skip_continuation and indented:
-            continue  # fold/literal continuation of a replaced key: skip by indent, not colon
-
-        if not stripped or stripped.startswith('#'):
-            skip_continuation = False
-            out.append(line)
-            continue
-        if ':' not in stripped:
-            if not skip_continuation:
-                out.append(line)
-            continue
-
-        skip_continuation = False
-        key = stripped.partition(':')[0].strip()
-        val_part = stripped.partition(':')[2].strip()
-        written.add(key)
-        if key in fields:
-            out.append(format_field(key, fields[key]))
-            # '' covers block-style lists and pending multiline values —
-            # their indented continuation lines are replaced wholesale too.
-            if val_part in ('>-', '>', '|-', '|', ''):
-                skip_continuation = True
-        else:
-            out.append(line)
-
-    for key, val in fields.items():
-        if key not in written:
-            out.append(format_field(key, val))
-
-    return '\n'.join(out)
+    """Serialize complete metadata without losing nested values or list items."""
+    original = load_frontmatter_yaml('\n'.join(original_lines)) if original_lines else {}
+    values = {**original, **fields}
+    comments = [line for line in original_lines if line.startswith('#')]
+    result = '\n'.join(comments + [format_field(key, val) for key, val in values.items()])
+    recovered = load_frontmatter_yaml(result)
+    if recovered != values:
+        raise FrontmatterError("Metadata serialization changed field names or values")
+    return result
 
 
 def collapse_repeated_description(desc: str) -> str:
@@ -403,21 +335,22 @@ def cap_description(desc: str, max_chars: int | None) -> str:
     return head + '…'
 
 
-YAML_SPECIAL = re.compile(r'[:#\[\]{}"\',|>!&*?]')
+YAML_SPECIAL = re.compile(r"[\s:#\[\]{}\"',|>!&*?@\\\x00-\x1f]")
+
 
 def format_field(key: str, val) -> str:
-    """Format a single frontmatter field."""
+    """JSON quoting is valid YAML and preserves URLs, commas and newlines."""
+    encoded_key = key if re.fullmatch(r'[A-Za-z_][A-Za-z_0-9-]*', key) and isinstance(yaml.safe_load(key), str) else json.dumps(key, ensure_ascii=False)
+    if key == 'description' and isinstance(val, str) and len(val) > 80 and '\n' not in val:
+        return f'{encoded_key}: >-\n  {val}'
+    def scalar(value):
+        if isinstance(value, str) and value and not YAML_SPECIAL.search(value):
+            if not value.startswith(('-', chr(96), '%')) and isinstance(yaml.safe_load(value), str):
+                return value
+        return json.dumps(value, ensure_ascii=False)
     if isinstance(val, list):
-        return f"{key}: [{', '.join(str(v) for v in val)}]"
-    if isinstance(val, (int, float)):
-        return f"{key}: {val}"
-    s = str(val)
-    if key == 'description' and s and len(s) > 80:
-        return f'{key}: >-\n  {s}'
-    if YAML_SPECIAL.search(s):
-        escaped = s.replace('"', '\\"')
-        return f'{key}: "{escaped}"'
-    return f"{key}: {s}"
+        return f"{encoded_key}: [{', '.join(scalar(v) for v in val)}]"
+    return f"{encoded_key}: {scalar(val)}"
 
 
 # ─── FILE OPERATIONS ───────────────────────────────────────
@@ -439,7 +372,7 @@ def rel_path(md_file: Path, vault_dir: Path) -> str:
 
 def is_hub_path(path: str) -> bool:
     """Return True for hub notes like _index or MEMORY at any depth."""
-    return Path(path).name in {'_index', 'MEMORY'}
+    return Path(path).name in {'_index', '.index', 'MEMORY', '_projects-map', 'MOC'} or path.startswith('MOC/')
 
 
 def build_link_index(vault_dir: Path, files: list[Path] | None = None) -> dict:
@@ -452,12 +385,12 @@ def build_link_index(vault_dir: Path, files: list[Path] | None = None) -> dict:
     for md in files:
         rp = rel_path(md, vault_dir)
         rp_noext = rp[:-3] if rp.endswith('.md') else rp
-        exact[rp_noext] = rp_noext
-        stem_map[md.stem].add(rp_noext)
+        exact[unicodedata.normalize('NFC', rp_noext)] = rp_noext
+        stem_map[unicodedata.normalize('NFC', md.stem)].add(rp_noext)
 
         parts = rp_noext.split('/')
         for i in range(1, len(parts) - 1):
-            suffix_map['/'.join(parts[i:])].add(rp_noext)
+            suffix_map[unicodedata.normalize('NFC', '/'.join(parts[i:]))].add(rp_noext)
 
     return {
         'exact': exact,
@@ -470,7 +403,7 @@ def build_link_index(vault_dir: Path, files: list[Path] | None = None) -> dict:
 
 def normalize_link_target(target: str) -> str:
     """Normalize a wikilink target before resolution."""
-    target = target.replace('\\', '').strip()
+    target = unicodedata.normalize('NFC', target.replace('\\', '').strip())
     if '#' in target:
         target = target.split('#', 1)[0].strip()
     if target.endswith('.md'):
@@ -480,7 +413,7 @@ def normalize_link_target(target: str) -> str:
     return target
 
 
-def resolve_link_target(target: str, link_index: dict) -> tuple[str | None, str]:
+def resolve_link_target(target: str, link_index: dict, source: str = '') -> tuple[str | None, str]:
     """Resolve a target using exact path, unique suffix, then unique stem."""
     target = normalize_link_target(target)
     if not target:
@@ -492,8 +425,14 @@ def resolve_link_target(target: str, link_index: dict) -> tuple[str | None, str]
     unique_stem = link_index.get('unique_stem', {})
     ambiguous_stem = link_index.get('ambiguous_stem', {})
 
+    if source:
+        relative = unicodedata.normalize('NFC', posixpath.normpath(posixpath.join(posixpath.dirname(source), target)))
+        if target.startswith(('./', '../')):
+            return (exact[relative], 'relative') if relative in exact else (None, 'missing')
     if target in exact:
         return exact[target], 'exact'
+    if source and relative in exact:
+        return exact[relative], 'relative'
     if target in unique_suffix:
         return unique_suffix[target], 'unique_suffix'
     if target in ambiguous_suffix:
@@ -642,6 +581,22 @@ def collect_duplicate_groups(vault_dir: Path, schema: dict | None = None,
 def extract_wikilinks(text: str) -> list[tuple[str, str]]:
     """Extract wikilinks as [(target, display_name), ...].
     Handles [[target]], [[target|display]], and [[target#heading]]."""
+    # Literal examples are not graph edges.
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+    lines = []
+    fence = None
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r'^\s{0,3}(\x60{3,}|~{3,})', line)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence) and not line[marker.end():].strip():
+                fence = None
+            continue
+        if fence is None:
+            lines.append(line)
+    text = re.sub(r'(\x60+)(.+?)\1', '', ''.join(lines), flags=re.DOTALL)
     results = []
     for m in re.finditer(r'\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]', text):
         target = m.group(1).strip()

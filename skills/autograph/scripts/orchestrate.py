@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph orchestrate — multi-agent workflow orchestration.
 
@@ -34,7 +38,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 
 def run_script(name: str, *args) -> tuple[int, str]:
     script = str(SCRIPTS_DIR / name)
-    cmd = ["python3", script] + list(args)
+    cmd = [sys.executable, script] + list(args)
     print(f"  > {name} {' '.join(args)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     output = result.stdout + result.stderr
@@ -57,40 +61,16 @@ def read_json(path: Path) -> dict:
 # ═══════════════════════════════════════════════════════════
 
 def cmd_health(vault_dir: Path):
-    vd = str(vault_dir)
-    print(f"\n{'='*55}")
-    print(f"  AUTOGRAPH HEALTH — {vault_dir.name}")
-    print(f"{'='*55}")
-
-    print("\n[1/5] Health check...")
-    run_script('graph.py', 'health', vd)
-    graph = read_json(vault_dir / '.graph' / 'vault-graph.json')
-    score = graph.get('stats', {}).get('health_score', 0)
-    broken = graph.get('stats', {}).get('broken_links', 0)
-    orphans = graph.get('stats', {}).get('orphans', 0)
-    print(f"    Score: {score}/100  broken: {broken}  orphans: {orphans}")
-
-    if broken > 0:
-        print(f"\n[2/5] Fixing {broken} broken links...")
-        run_script('graph.py', 'fix', vd, '--apply')
-    else:
-        print("\n[2/5] No broken links.")
-
-    print("\n[3/5] Link cleanup...")
-    run_script('link_cleanup.py', vd, '--apply')
-
-    print("\n[4/5] MOC generation + decay...")
-    run_script('moc.py', 'generate', vd)
-    run_script('engine.py', 'decay', vd)
-
-    print("\n[5/5] Final health check...")
-    run_script('graph.py', 'health', vd)
-    graph2 = read_json(vault_dir / '.graph' / 'vault-graph.json')
-    final = graph2.get('stats', {}).get('health_score', 0)
-    delta = final - score
-
-    print(f"\n  Result: {score} -> {final} ({'+' if delta >= 0 else ''}{delta})")
-    print(f"  Status: {'HEALTHY' if final >= 90 else 'NEEDS ATTENTION'}")
+    """Report health without implicitly changing cards, indexes or decay."""
+    schema = vault_dir / "schema.json"
+    graph_rc, _ = run_script("graph.py", "health", str(vault_dir), str(schema))
+    validation_rc, output = run_script("enforce.py", str(vault_dir), str(schema), "--check")
+    print(output)
+    graph = read_json(vault_dir / ".graph" / "vault-graph.json")
+    stats = graph.get("stats", {})
+    print(f"Broken links: {stats.get('broken_links', 0)}")
+    print("Cards unchanged. Review an explicit repair manifest before applying fixes.")
+    return graph_rc or validation_rc
 
 
 # ═══════════════════════════════════════════════════════════
@@ -201,7 +181,7 @@ def cmd_dedup_prepare(vault_dir: Path):
         'instructions': (
             'Review each cluster. For each, decide: merge_duplicate (safe) or manual_hold (ambiguous). '
             'Set "approved": true on safe merges. Then run: '
-            'python3 dedup.py <vault> --apply-manifest <this-file>'
+            'uv run dedup.py <vault> --apply-manifest <this-file>'
         ),
     }
 
@@ -261,7 +241,7 @@ def cmd_link_prepare(vault_dir: Path, force: bool = False):
             'For each domain, review files and suggest 3-8 links from the catalog. '
             'ONLY use stems from all_stems. No self-links, no existing links. '
             'Write results as batch-NNN-results.json to .graph/enrich/specialists/. '
-            'Then run: python3 enrich.py swarm-links <vault> --apply '
+            'Then run: uv run enrich.py swarm-links <vault> --apply '
             'to apply from that directory.'
         ),
     }
@@ -380,7 +360,7 @@ Data prep (for Claude Code agent judgment):
         sys.exit(1)
 
     cmds = {
-        'health': lambda: cmd_health(vault),
+        'health': lambda: sys.exit(cmd_health(vault)),
         'bootstrap': lambda: cmd_bootstrap(vault),
         'dedup-prepare': lambda: cmd_dedup_prepare(vault),
         'link-prepare': lambda: cmd_link_prepare(vault, getattr(ns, 'force', False)),

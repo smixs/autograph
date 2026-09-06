@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 """
 autograph dedup — find duplicate entities and write reproducible cleanup
 manifests before any destructive-ish move.
 
 Usage:
-  python3 dedup.py <vault-dir> [schema.json]                         # report only
-  python3 dedup.py <vault-dir> [schema.json] --manifest /tmp/m.json   # write dry-run manifest
-  python3 dedup.py <vault-dir> [schema.json] --apply-manifest m.json  # apply approved entries
-  python3 dedup.py <vault-dir> [schema.json] --apply                  # legacy apply, blocked by policy schemas
+  uv run dedup.py <vault-dir> [schema.json]                         # report only
+  uv run dedup.py <vault-dir> [schema.json] --manifest /tmp/m.json   # write dry-run manifest
+  uv run dedup.py <vault-dir> [schema.json] --apply-manifest m.json  # apply approved entries
+  uv run dedup.py <vault-dir> [schema.json] --apply                  # legacy apply, blocked by policy schemas
 
 Safety:
   - NEVER deletes files. Moves extras to <vault>/.trash/dedup-YYYY-MM-DD/
@@ -307,7 +311,7 @@ def merge_content(canonical_path: Path, extra_paths: list[Path],
     conflict = set(conflict_fields or [])
     today = today or date.today().isoformat()
     canon_content = canonical_path.read_text(errors='replace')
-    canon_fm, canon_body, canon_lines = parse_frontmatter(canon_content)
+    canon_fm, canon_body, canon_lines = parse_frontmatter(canon_content, strict=True)
     if canon_fm is None:
         canon_fm = {}
     changed = False
@@ -318,7 +322,7 @@ def merge_content(canonical_path: Path, extra_paths: list[Path],
             extra_content = extra_path.read_text(errors='replace')
         except Exception:
             continue
-        extra_fm, extra_body, _ = parse_frontmatter(extra_content)
+        extra_fm, extra_body, _ = parse_frontmatter(extra_content, strict=True)
         if extra_fm is None:
             extra_fm = {}
         canon_date = card_recency_date(canon_fm)
@@ -426,7 +430,7 @@ def thin_crm_overlay(
     if not full.exists():
         return False
     content = full.read_text(errors='replace')
-    fm, body, fm_lines = parse_frontmatter(content)
+    fm, body, fm_lines = parse_frontmatter(content, strict=True)
     fm = fm or {}
     canonical_noext = canonical.replace('.md', '')
     title = first_heading(body) or Path(crm_path).stem
